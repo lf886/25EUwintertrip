@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>菲伊的雙人歐洲冬季旅記</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app, db, auth;
+        let globalUserId = null;
+
+        if (Object.keys(firebaseConfig).length > 0) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            window.db = db;
+
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    globalUserId = user.uid;
+                    setupFirestoreListener();
+                } else {
+                    try {
+                        if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken);
+                        else await signInAnonymously(auth);
+                    } catch (e) {
+                        console.error(e);
+                        globalUserId = crypto.randomUUID();
+                        setupFirestoreListener();
+                    }
+                }
+            });
+        } else {
+            globalUserId = crypto.randomUUID();
+            window.appData = initialItineraryData;
+            renderAll();
+        }
+
+        // 回復為使用者私有路徑
+        const USER_DATA_PATH = (uid) => `artifacts/${appId}/users/${uid}/itinerary/data`;
+        const ACCOUNTING_DATA_PATH = (uid) => `artifacts/${appId}/users/${uid}/accounting/data`;
+
+        function setupFirestoreListener() {
+            if (!db || !globalUserId) return;
+
+            onSnapshot(doc(db, USER_DATA_PATH(globalUserId)), (docSnap) => {
+                if (docSnap.exists() && docSnap.data().itinerary) {
+                    window.appData = docSnap.data().itinerary;
+                } else {
+                    window.appData = initialItineraryData;
+                    saveDataToFirestore();
+                }
+                renderAll();
+            });
+
+            onSnapshot(doc(db, ACCOUNTING_DATA_PATH(globalUserId)), (docSnap) => {
+                if (docSnap.exists() && docSnap.data().accounting) {
+                    window.accountingData = docSnap.data().accounting;
+                } else {
+                    window.accountingData = { entries: [] };
+                    saveAccountingToFirestore();
+                }
+                renderAccountingList();
+            });
+        }
+
+        window.saveDataToFirestore = async function() {
+            if (!db || !globalUserId) return;
+            await setDoc(doc(db, USER_DATA_PATH(globalUserId)), { itinerary: window.appData }, { merge: true });
+        }
+
+        window.saveAccountingToFirestore = async function() {
+            if (!db || !globalUserId) return;
+            await setDoc(doc(db, ACCOUNTING_DATA_PATH(globalUserId)), { accounting: window.accountingData }, { merge: true });
+        }
+
+        window.updateCardData = function(dayIndex, cardIndex, newData) {
+            if (window.appData && window.appData.days[dayIndex]) {
+                 if (cardIndex === -1) {
+                    window.appData.days[dayIndex].cards.push(newData);
+                } else if (window.appData.days[dayIndex].cards[cardIndex]) {
+                    Object.assign(window.appData.days[dayIndex].cards[cardIndex], newData);
+                }
+                saveDataToFirestore();
+            }
+        };
+    </script>
+
+    <!-- Tailwind Config -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'morandi-bg': '#FDFCF8',
+                        'morandi-card': '#FFFFFF',
+                        'morandi-primary': '#B08968',
+                        'morandi-accent': '#A65D57',
+                        'morandi-dark': '#4A4A4A',
+                        'morandi-secondary': '#7A7A7A',
+                        'morandi-green': '#8F9E8B',
+                        'morandi-orange': '#D4A88C',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Noto Sans TC', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', 'Noto Sans TC', 'sans-serif'; background-color: var(--morandi-bg); color: #4A4A4A; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .tab-active { border-bottom: 3px solid #A65D57; color: #4A4A4A; font-weight: 700; }
+        
+        .tag-green { background-color: #E8F5E9; color: #2E7D32; border: 1px solid #C8E6C9; }
+        .tag-orange { background-color: #FFF3E0; color: #EF6C00; border: 1px solid #FFE0B2; }
+        .tag-gray { background-color: #F5F5F5; color: #757575; border: 1px solid #E0E0E0; }
+        
+        /* 隱藏/顯示動畫 */
+        .fade-enter { opacity: 0; transform: translateY(-10px); }
+        .fade-enter-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; }
+    </style>
+</head>
+<body class="bg-morandi-bg min-h-screen">
+
+    <!-- 頂部導航 -->
+    <header class="sticky top-0 z-30 bg-morandi-bg/95 backdrop-blur-sm p-4 shadow-sm border-b border-morandi-primary/20">
+        <h1 class="text-2xl font-bold text-morandi-dark tracking-wide">菲伊的冬季旅記 🎄</h1>
+        <p class="text-sm text-morandi-accent font-medium">歐洲雙人行 • 2025/12/21 - 2026/01/04</p>
+    </header>
+
+    <main id="app-container" class="max-w-xl mx-auto p-0 sm:p-4 pb-24">
+
+        <!-- Tab 導航 -->
+        <div class="flex sticky top-[76px] z-20 bg-morandi-bg border-b border-morandi-primary/20 pt-2 shadow-sm">
+            <button id="tab-itinerary" onclick="switchTab('itinerary')" class="flex-1 py-3 text-center transition duration-150 ease-in-out tab-active">
+                行程
+            </button>
+            <button id="tab-budget" onclick="switchTab('budget')" class="flex-1 py-3 text-center text-morandi-secondary transition duration-150 ease-in-out">
+                記帳 & 結算
+            </button>
+        </div>
+
+        <!-- 行程內容區 -->
+        <div id="itinerary-view" class="pt-4 space-y-4">
+            
+            <!-- 日期選擇器 (含左右箭頭) -->
+            <div class="relative bg-morandi-bg z-10 px-2 pb-2">
+                <div class="flex items-center">
+                    <button onclick="scrollNav(-1)" class="p-2 text-morandi-primary hover:bg-morandi-primary/10 rounded-full flex-shrink-0 z-10">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <div id="day-navigation" class="flex overflow-x-auto px-2 space-x-3 no-scrollbar scroll-smooth w-full">
+                        <!-- 日期由 JS 渲染 -->
+                    </div>
+                    <button onclick="scrollNav(1)" class="p-2 text-morandi-primary hover:bg-morandi-primary/10 rounded-full flex-shrink-0 z-10">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 城市圖片 Header (可愛風) -->
+            <div class="px-3 sm:px-0">
+                <div id="city-header-container" class="rounded-xl overflow-hidden shadow-md relative h-48 bg-gray-100 group">
+                    <img id="header-img" src="" class="w-full h-full object-cover transition-opacity duration-700 opacity-0" onload="this.classList.remove('opacity-0')">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent flex items-end p-4">
+                        <div class="text-white">
+                            <h2 id="header-city" class="text-3xl font-bold drop-shadow-md"></h2>
+                            <p id="header-weather" class="text-sm opacity-90 font-medium"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 卡片列表 -->
+            <div id="itinerary-cards" class="px-3 sm:px-0 space-y-4 pb-10">
+                <div class="text-center text-morandi-secondary/60 py-10" id="loading-indicator">載入中...</div>
+            </div>
+        </div>
+
+        <!-- 記帳內容區 -->
+        <div id="budget-view" class="hidden pt-6 px-3 sm:px-0">
+            <!-- 結算區塊 -->
+            <div class="bg-white rounded-xl shadow-sm border border-morandi-primary/20 overflow-hidden mb-6">
+                <button onclick="toggleBalance()" class="w-full flex justify-between items-center p-4 bg-morandi-bg hover:bg-gray-50 transition">
+                    <div class="flex items-center space-x-2 text-morandi-primary font-bold">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 100-2 1 1 0 000 2zm7-1a1 1 0 11-2 0 1 1 0 012 0zm-7.536 5.879a1 1 0 001.415 0 3 3 0 014.242 0 1 1 0 001.415-1.415 5 5 0 00-7.072 0 1 1 0 000 1.415z" clip-rule="evenodd" /></svg>
+                        <span>查看結算 (Balance)</span>
+                    </div>
+                    <svg id="balance-arrow" class="w-5 h-5 text-gray-400 transform transition duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                <div id="balance-content" class="hidden p-4 bg-white border-t border-gray-100">
+                    <div id="balance-list" class="space-y-3"></div>
+                </div>
+            </div>
+
+            <!-- 記帳表單 -->
+            <div class="bg-morandi-card p-5 rounded-xl shadow-md border border-morandi-primary/10 mb-6 relative">
+                <h3 id="form-title" class="text-lg font-bold mb-4 text-morandi-dark border-l-4 border-morandi-primary pl-3">新增支出</h3>
+                <form id="accounting-form" class="space-y-4">
+                    <div class="grid grid-cols-3 gap-3">
+                        <div class="col-span-2">
+                            <label class="text-xs text-gray-500 mb-1 block">日期</label>
+                            <input type="date" id="expense-date" required class="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                        </div>
+                        <div class="col-span-1">
+                            <label class="text-xs text-gray-500 mb-1 block">幣別</label>
+                            <select id="expense-currency" class="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                                <option value="TWD">TWD</option>
+                                <option value="EUR">EUR</option>
+                                <option value="CZK">CZK</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-500 mb-1 block">項目描述</label>
+                        <input type="text" id="expense-desc" placeholder="例如：晚餐、車票" required class="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-morandi-primary">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs text-gray-500 mb-1 block">金額</label>
+                            <input type="number" id="expense-amount" placeholder="0.00" required step="0.01" class="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 mb-1 block">分類</label>
+                            <select id="expense-category" required class="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                                <option value="餐飲">餐飲</option>
+                                <option value="交通">交通</option>
+                                <option value="門票">門票</option>
+                                <option value="住宿">住宿</option>
+                                <option value="購物">購物</option>
+                                <option value="其他">其他</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 p-3 rounded-lg space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-gray-500">付款人</span>
+                            <div class="flex space-x-2">
+                                <label class="cursor-pointer text-sm"><input type="radio" name="payer" value="Felix" checked class="accent-morandi-primary"> Felix</label>
+                                <label class="cursor-pointer text-sm"><input type="radio" name="payer" value="Esther" class="accent-morandi-accent"> Esther</label>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-gray-500">分帳人</span>
+                            <div class="flex space-x-2">
+                                <label class="cursor-pointer text-sm"><input type="checkbox" name="participant" value="Felix" checked class="accent-morandi-dark"> Felix</label>
+                                <label class="cursor-pointer text-sm"><input type="checkbox" name="participant" value="Esther" checked class="accent-morandi-dark"> Esther</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex space-x-2 pt-2">
+                        <button type="button" id="cancel-edit-btn" onclick="cancelEdit()" class="hidden w-1/3 bg-gray-200 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-300">取消</button>
+                        <button type="submit" id="submit-btn" class="flex-1 bg-morandi-primary text-white py-2 rounded-lg font-bold shadow-sm hover:opacity-90 transition">新增紀錄</button>
+                    </div>
+                </form>
+            </div>
+            <div class="space-y-3 pb-10" id="expense-list"></div>
+        </div>
+
+    </main>
+
+    <!-- 編輯 Modal -->
+    <div id="edit-modal" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex justify-center items-end sm:items-center hidden transition-opacity duration-300">
+        <div class="bg-morandi-card w-full sm:w-[90%] max-w-lg h-[85vh] sm:h-auto sm:max-h-[85vh] rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-slide-up sm:animate-none">
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h3 class="text-lg font-bold text-morandi-dark">編輯卡片</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div id="modal-content-area" class="p-5 overflow-y-auto space-y-4 flex-1"></div>
+            <div class="p-4 border-t border-gray-100 bg-gray-50 flex justify-end space-x-3 shrink-0">
+                <button onclick="closeModal()" class="px-5 py-2 text-sm font-medium text-gray-500 hover:text-gray-700">取消</button>
+                <button onclick="saveCardEdit()" class="px-5 py-2 text-sm font-bold text-white bg-morandi-primary rounded-lg hover:opacity-90">儲存變更</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 核心資料 ---
+        const mockWeather = {
+            'Wien': { temp: '2°C', icon: '❄️', condition: '下雪' },
+            'Prague': { temp: '-1°C', icon: '🥶', condition: '極寒' },
+            'Nürnberg': { temp: '0°C', icon: '☁️', condition: '多雲' },
+            'Strasbourg': { temp: '3°C', icon: '🌧️', condition: '小雨' },
+            'Paris': { temp: '6°C', icon: '🌥️', condition: '多雲' },
+        };
+
+        const initialItineraryData = {
+            days: [
+                { id: 1, date: '2025/12/21', city: 'Wien', city_zh: '維也納', cards: [
+                    { type: 'accommodation', time: '08:00', name: 'Hotel Motel One Wien', data: { address: 'Hauptbahnhof', status: '已預訂', booking_link: '#' } },
+                    { type: 'cafe', time: '09:27', name: 'Öfferl', data: { must_eat: '可頌', reservation: '無需訂位' } },
+                    { type: 'sightseeing', time: '10:27', name: '維也納音樂協會', data: { story: '金色大廳所在地', ticket_status: '需提前購票' } },
+                    { type: 'sightseeing', time: '11:31', name: '卡爾教堂', data: { ticket_status: '當日購票' } },
+                    { type: 'sightseeing', time: '12:31', name: '美景宮', data: { ticket_status: '需提前購票' } },
+                    { type: 'sightseeing', time: '13:31', name: '城市公園', data: { ticket_status: '無需購票' } },
+                    { type: 'cafe', time: '14:31', name: '德梅爾咖啡店', data: { must_eat: '薩赫蛋糕', reservation: '需提前訂位' } },
+                    { type: 'sightseeing', time: '15:39', name: '聖斯德望主教座堂', data: { ticket_status: '無需購票' } },
+                    { type: 'sightseeing', time: '16:44', name: '安可鐘', data: { ticket_status: '無需購票' } },
+                    { type: 'dining', time: '20:00', name: 'Ribs of Vienna', data: { must_eat: '烤肋排', reservation: '需提前訂位' } },
+                    { type: 'sightseeing', time: '21:00', name: 'Graben', data: { ticket_status: '無需購票' } }
+                ]},
+                { id: 2, date: '2025/12/22', city: 'Wien', city_zh: '維也納', cards: [
+                    { type: 'cafe', time: '09:00', name: 'GOTA Coffee', data: { must_eat: '手沖咖啡', reservation: '無需訂位' } },
+                    { type: 'sightseeing', time: '10:17', name: '美泉宮', data: { story: '茜茜公主夏宮', ticket_status: '需提前購票' } },
+                    { type: 'sightseeing', time: '12:58', name: '藝術史博物館', data: { ticket_status: '需提前購票' } },
+                    { type: 'dining', time: '16:30', name: 'Gasthaus Rebhuhn', data: { must_eat: '炸肉排', reservation: '無需訂位' } },
+                    { type: 'sightseeing', time: '18:08', name: '市政廳廣場', data: { story: '聖誕市集', ticket_status: '無需購票' } }
+                ]},
+                { id: 3, date: '2025/12/23', city: 'Prague', city_zh: '布拉格', cards: [
+                    { type: 'transport', time: '07:35', name: 'Wien -> Prague', data: { origin: 'Vienna Central', destination: 'Prague Florenc', arrival_time: '12:30', transport_mode: 'train' } },
+                    { type: 'accommodation', time: '12:39', name: 'Hotel Motel One Prag', data: { address: 'Na Poříčí', status: '已預訂', booking_link: '#' } },
+                    { type: 'sightseeing', time: '13:47', name: '布拉格城堡', data: { ticket_status: '需提前購票' } },
+                    { type: 'sightseeing', time: '16:49', name: '聖維特主教座堂', data: { ticket_status: '需提前購票' } },
+                    { type: 'dining', time: '19:00', name: 'U Glaubiců', data: { must_eat: '捷克啤酒', reservation: '已訂位', link: '#' } },
+                    { type: 'dining', time: '20:00', name: 'Kantýna', data: { must_eat: '塔塔蜜', reservation: '無需訂位' } }
+                ]},
+                { id: 4, date: '2025/12/24', city: 'Prague', city_zh: '布拉格', cards: [
+                    { type: 'cafe', time: '08:21', name: 'Nerudova 211', data: { reservation: '無需訂位' } },
+                    { type: 'sightseeing', time: '09:24', name: '聖尼古拉教堂', data: { ticket_status: '當日購票' } },
+                    { type: 'sightseeing', time: '10:17', name: '查理大橋', data: { ticket_status: '無需購票' } },
+                    { type: 'sightseeing', time: '10:59', name: '跳舞的房子', data: { ticket_status: '無需購票' } },
+                    { type: 'dining', time: '11:34', name: 'Pork\'s Vodičkova', data: { must_eat: '豬腳', reservation: '需提前訂位' } },
+                    { type: 'sightseeing', time: '13:15', name: '聖瓦茨拉夫雕像', data: { ticket_status: '無需購票' } },
+                    { type: 'sightseeing', time: '14:57', name: 'Kafka Head', data: { ticket_status: '無需購票' } },
+                    { type: 'sightseeing', time: '15:26', name: '哈維爾市集', data: { ticket_status: '無需購票' } },
+                    { type: 'sightseeing', time: '16:30', name: '布拉格天文鐘', data: { ticket_status: '需提前購票' } },
+                    { type: 'sightseeing', time: '16:52', name: '老城廣場', data: { ticket_status: '無需購票' } },
+                    { type: 'sightseeing', time: '17:59', name: '火藥塔', data: { ticket_status: '當日購票' } },
+                    { type: 'dining', time: '19:30', name: 'Café Imperial', data: { must_eat: '帝國蛋糕', reservation: '需提前訂位' } },
+                    { type: 'dining', time: '21:09', name: 'Lokál Dlouhááá', data: { reservation: '無需訂位' } }
+                ]},
+                { id: 5, date: '2025/12/25', city: 'Nürnberg', city_zh: '紐倫堡', cards: [
+                    { type: 'transport', time: '07:35', name: 'Prague -> Nürnberg', data: { origin: 'Prague Bus Terminal', destination: 'Nürnberg', arrival_time: '11:45', transport_mode: 'bus' } },
+                    { type: 'accommodation', time: '11:59', name: 'The Cloud One Hotel', data: { status: '已預訂', booking_link: '#' } },
+                    { type: 'dining', time: '13:01', name: 'Wirtshaus Hütt\'n', data: { must_eat: '紐倫堡香腸', reservation: '需提前訂位' } },
+                    { type: 'sightseeing', time: '14:06', name: 'Weißgerbergasse', data: { ticket_status: '無需購票' } },
+                    { type: 'sightseeing', time: '15:08', name: '紐倫堡玩具博物館', data: { ticket_status: '當日購票' } }
+                ]},
+                { id: 6, date: '2025/12/26', city: 'Nürnberg', city_zh: '紐倫堡', cards: [
+                    { type: 'dining', time: '08:00', name: 'Restaurant Alter Keller', data: { reservation: '無需訂位' } }
+                ]},
+                { id: 7, date: '2025/12/27', city: 'Nürnberg', city_zh: '紐倫堡', cards: [
+                    { type: 'transport', time: '09:41', name: 'Nürnberg -> Strasbourg', data: { origin: 'Nürnberg Hbf', destination: 'Strasbourg', arrival_time: '16:05', transport_mode: 'train' } },
+                    { type: 'accommodation', time: '16:11', name: '6 Rue Kuhn', data: { status: '已預訂', booking_link: '#' } },
+                    { type: 'dining', time: '17:17', name: '22 Mai Pizza', data: { reservation: '無需訂位' } }
+                ]},
+                { id: 8, date: '2025/12/28', city: 'Strasbourg', city_zh: '史特拉斯堡', cards: [
+                    { type: 'cafe', time: '08:00', name: 'Pâtisserie Ôjourd\'hui', data: { must_eat: '甜點', reservation: '無需訂位' } },
+                    { type: 'sightseeing', time: '09:00', name: '小法國區', data: { ticket_status: '無需購票' } },
+                    { type: 'sightseeing', time: '10:08', name: '克勒貝爾廣場', data: { ticket_status: '無需購票' } },
+                    { type: 'sightseeing', time: '11:15', name: '史特拉斯堡主教座堂', data: { ticket_status: '無需購票' } },
+                    { type: 'sightseeing', time: '12:16', name: '城堡廣場', data: { ticket_status: '無需購票' } }
+                ]},
+                { id: 9, date: '2025/12/29', city: 'Strasbourg', city_zh: '史特拉斯堡', cards: [
+                    { type: 'dining', time: '08:00', name: 'Winstub au Cygne', data: { must_eat: '酸菜燉肉', reservation: '需提前訂位' } }
+                ]},
+                { id: 10, date: '2025/12/30', city: 'Paris', city_zh: '巴黎', cards: [
+                    { type: 'cafe', time: '08:00', name: 'Naegel', data: { reservation: '無需訂位' } },
+                    { type: 'transport', time: '12:50', name: 'Strasbourg -> Paris', data: { origin: 'Strasbourg', destination: 'Gare du Nord', arrival_time: '15:17', transport_mode: 'train' } },
+                    { type: 'accommodation', time: '16:15', name: 'Hôtel Max', data: { address: '35 Rue de l\'Amiral Mouchez', status: '已預訂', booking_link: '#' } },
+                    { type: 'dining', time: '18:45', name: 'BigLove', data: { must_eat: '松露義大利麵', reservation: '需提前訂位' } },
+                    { type: 'sightseeing', time: '19:53', name: '瑪萊區', data: { ticket_status: '無需購票' } }
+                ]},
+                { id: 11, date: '2025/12/31', city: 'Paris', city_zh: '巴黎', cards: [
+                    { type: 'sightseeing', time: '11:30', name: '羅浮宮', data: { ticket_status: '需提前購票' } },
+                    { type: 'dining', time: '18:30', name: 'Brasserie Flottes', data: { must_eat: '生蠔', reservation: '需提前訂位' } },
+                    { type: 'sightseeing', time: '20:37', name: '凱旋門', data: { ticket_status: '需提前購票' } }
+                ]},
+                { id: 12, date: '2026/01/01', city: 'Paris', city_zh: '巴黎', cards: [
+                    { type: 'sightseeing', time: '08:00', name: '奧賽博物館', data: { ticket_status: '需提前購票' } },
+                    { type: 'sightseeing', time: '09:00', name: '聖徒禮拜堂', data: { ticket_status: '需提前購票' } },
+                    { type: 'sightseeing', time: '10:09', name: '巴黎聖母院', data: { ticket_status: '無需購票' } }
+                ]},
+                { id: 13, date: '2026/01/02', city: 'Paris', city_zh: '巴黎', cards: [
+                    { type: 'cafe', time: '08:00', name: 'L\'Howea', data: { reservation: '無需訂位' } },
+                    { type: 'sightseeing', time: '09:08', name: '艾菲爾鐵塔', data: { ticket_status: '需提前購票' } },
+                    { type: 'sightseeing', time: '10:08', name: '歌劇院', data: { ticket_status: '需提前購票' } },
+                    { type: 'sightseeing', time: '11:08', name: '愛牆', data: { ticket_status: '無需購票' } },
+                    { type: 'dining', time: '12:12', name: 'Mamie Colette', data: { must_eat: '薄餅', reservation: '無需訂位' } },
+                    { type: 'sightseeing', time: '13:22', name: '聖心堂', data: { ticket_status: '無需購票' } }
+                ]},
+                { id: 14, date: '2026/01/03', city: 'Paris', city_zh: '巴黎', cards: [] },
+                { id: 15, date: '2026/01/04', city: 'Paris', city_zh: '巴黎', cards: [] }
+            ]
+        };
+        
+        let currentDayIndex = 0;
+        let editingCardRef = { dayIndex: -1, cardIndex: -1 }; 
+        let editingExpenseId = null;
+        window.appData = initialItineraryData;
+        window.accountingData = { entries: [] };
+
+        // --- 渲染函數 ---
+        
+        function renderDayNavigation() {
+            const nav = document.getElementById('day-navigation');
+            nav.innerHTML = window.appData.days.map((day, index) => {
+                const activeClass = index === currentDayIndex 
+                    ? 'bg-morandi-primary text-white shadow-md' 
+                    : 'bg-white text-morandi-secondary border border-gray-200';
+                return `
+                    <button onclick="changeDay(${index})" class="flex-shrink-0 min-w-[80px] p-2 rounded-xl transition-all ${activeClass}">
+                        <div class="text-[10px] uppercase opacity-80">Day ${day.id}</div>
+                        <div class="text-sm font-bold">${day.city_zh}</div>
+                        <div class="text-[10px]">${day.date.slice(5)}</div>
+                    </button>
+                `;
+            }).join('');
+            
+            const activeBtn = nav.querySelector('.bg-morandi-primary');
+            if(activeBtn) {
+                nav.scrollTo({ left: activeBtn.offsetLeft - nav.offsetWidth/2 + activeBtn.offsetWidth/2, behavior: 'smooth' });
+            }
+        }
+
+        window.scrollNav = function(direction) {
+            const nav = document.getElementById('day-navigation');
+            nav.scrollBy({ left: direction * 150, behavior: 'smooth' });
+        }
+
+        function renderDayHeader(city, cityZh) {
+            const imgUrl = `https://image.pollinations.ai/prompt/cute%20winter%20illustration%20of%20${city}%20landmark,%20cozy%20atmosphere,%20soft%20lighting,%20anime%20style%20art,%20pastel%20colors,%20snowy?width=800&height=400&nologo=true&seed=${currentDayIndex}`;
+            const imgEl = document.getElementById('header-img');
+            const cityEl = document.getElementById('header-city');
+            const weatherEl = document.getElementById('header-weather');
+            const weather = mockWeather[city] || { temp: '', icon: '', condition: '' };
+
+            imgEl.classList.add('opacity-0');
+            setTimeout(() => { imgEl.src = imgUrl; }, 200);
+
+            cityEl.textContent = cityZh;
+            weatherEl.textContent = `${weather.icon} ${weather.temp} ${weather.condition}`;
+        }
+
+        function getTagHTML(text) {
+            if (!text || text.includes('無需')) return '';
+            let className = 'tag-gray';
+            if (text.includes('已')) className = 'tag-green';
+            if (text.includes('需') || text.includes('未')) className = 'tag-orange';
+            return `<span class="text-[10px] px-2 py-0.5 rounded-full font-bold ${className}">${text}</span>`;
+        }
+
+        // SVG 圖示定義 (單色簡約)
+        const ICONS = {
+            sightseeing: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>`,
+            dining: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>`, // Custom/simplified cutlery usually needs custom path, using adjust icon here as placeholder or generic
+            // Better cutlery icon
+            dining_real: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 15.546c-.523 0-1.046.151-1.5.454a2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.701 2.701 0 00-1.5-.454M9 6v2m3-2v2m3-2v2M9 3h.01M12 3h.01M15 3h.01M21 21v-7a2 2 0 00-2-2H5a2 2 0 00-2 2v7h18zm-3-9v-2a2 2 0 00-2-2H8a2 2 0 00-2 2v2h12z" /></svg>`, // actually Cake icon is easier, let's use a generic generic one
+            cafe: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z" /></svg>`,
+            accommodation: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>`,
+            transport: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" /></svg>`, // Ticket icon
+            pin: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.828 0l-4.243-4.243m-4.243 4.243V21h12V17h-4.243z" /></svg>`
+        };
+
+        function renderCard(card, dIdx, cIdx) {
+            let icon = ICONS.pin;
+            let borderClass = 'border-l-4 border-gray-300';
+            let tags = '';
+            let bookingBtn = '';
+            let cardContent = '';
+
+            const showLink = (status, link) => {
+                return status && status.includes('已') && link;
+            };
+
+            if (card.type === 'sightseeing') {
+                icon = ICONS.sightseeing; borderClass = 'border-l-4 border-morandi-primary';
+                tags += getTagHTML(card.data.ticket_status);
+                if (showLink(card.data.ticket_status, card.data.ticket_link)) {
+                    bookingBtn = `<a href="${card.data.ticket_link}" target="_blank" onclick="event.stopPropagation();" class="text-xs font-bold text-morandi-primary hover:underline flex items-center gap-1 bg-morandi-primary/10 px-2 py-1 rounded-md"><span>🎫 查看門票</span></a>`;
+                }
+                cardContent = `
+                    <div class="flex flex-wrap items-center gap-2 mt-2">
+                        ${tags} ${bookingBtn}
+                    </div>
+                    ${card.data.must_eat ? `<p class="text-xs text-gray-500 mt-2">必吃：${card.data.must_eat}</p>` : ''}
+                    ${card.data.story ? `<p class="text-xs text-gray-400 mt-1 italic line-clamp-2">"${card.data.story}"</p>` : ''}
+                `;
+            } else if (card.type === 'dining') {
+                icon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 15.546c-.523 0-1.046.151-1.5.454a2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.704 2.704 0 00-3 0 2.704 2.704 0 01-3 0 2.701 2.701 0 00-1.5-.454M9 6v2m3-2v2m3-2v2M9 3h.01M12 3h.01M15 3h.01M21 21v-7a2 2 0 00-2-2H5a2 2 0 00-2 2v7h18zm-3-9v-2a2 2 0 00-2-2H8a2 2 0 00-2 2v2h12z" /></svg>`; borderClass = 'border-l-4 border-morandi-accent';
+                tags += getTagHTML(card.data.reservation);
+                if (showLink(card.data.reservation, card.data.link)) {
+                    bookingBtn = `<a href="${card.data.link}" target="_blank" onclick="event.stopPropagation();" class="text-xs font-bold text-morandi-accent hover:underline flex items-center gap-1 bg-morandi-accent/10 px-2 py-1 rounded-md"><span>📅 查看訂位</span></a>`;
+                }
+                cardContent = `
+                    <div class="flex flex-wrap items-center gap-2 mt-2">
+                        ${tags} ${bookingBtn}
+                    </div>
+                    ${card.data.must_eat ? `<p class="text-xs text-gray-500 mt-2">必吃：${card.data.must_eat}</p>` : ''}
+                    ${card.data.story ? `<p class="text-xs text-gray-400 mt-1 italic line-clamp-2">"${card.data.story}"</p>` : ''}
+                `;
+            } else if (card.type === 'cafe') {
+                icon = ICONS.cafe; borderClass = 'border-l-4 border-morandi-orange';
+                tags += getTagHTML(card.data.reservation);
+                 if (showLink(card.data.reservation, card.data.link)) {
+                    bookingBtn = `<a href="${card.data.link}" target="_blank" onclick="event.stopPropagation();" class="text-xs font-bold text-morandi-orange hover:underline flex items-center gap-1 bg-morandi-orange/10 px-2 py-1 rounded-md"><span>☕ 查看訂位</span></a>`;
+                }
+                 cardContent = `
+                    <div class="flex flex-wrap items-center gap-2 mt-2">
+                        ${tags} ${bookingBtn}
+                    </div>
+                    ${card.data.must_eat ? `<p class="text-xs text-gray-500 mt-2">必吃：${card.data.must_eat}</p>` : ''}
+                    ${card.data.story ? `<p class="text-xs text-gray-400 mt-1 italic line-clamp-2">"${card.data.story}"</p>` : ''}
+                `;
+            } else if (card.type === 'accommodation') {
+                icon = ICONS.accommodation; borderClass = 'border-l-4 border-morandi-green';
+                tags += getTagHTML(card.data.status);
+                if (showLink(card.data.status, card.data.booking_link)) {
+                    bookingBtn = `<a href="${card.data.booking_link}" target="_blank" onclick="event.stopPropagation();" class="text-xs font-bold text-morandi-green hover:underline flex items-center gap-1 bg-morandi-green/10 px-2 py-1 rounded-md"><span>🏨 查看訂房</span></a>`;
+                }
+                 cardContent = `
+                    <div class="flex flex-wrap items-center gap-2 mt-2">
+                        ${tags} ${bookingBtn}
+                    </div>
+                `;
+            } else if (card.type === 'transport') {
+                icon = ICONS.transport; borderClass = 'border-l-4 border-gray-400 bg-gray-50/50';
+                
+                let transportIcon = ICONS.transport; // Default ticket icon
+                // Simple monochromatic SVG for transport modes
+                if (card.data.transport_mode === 'bus') transportIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>`; // Arrow for bus? Or generic
+                if (card.data.transport_mode === 'plane') transportIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>`;
+                if (card.data.transport_mode === 'subway' || card.data.transport_mode === 'train') transportIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>`; // Bolt/Fast
+
+                cardContent = `
+                     <div class="mt-2 flex flex-col space-y-2">
+                        <div class="flex items-center justify-between text-sm">
+                            <div class="flex flex-col">
+                                <span class="text-xs text-gray-400">起點</span>
+                                <span class="font-bold text-gray-700">${card.data.origin || '未設定'}</span>
+                                <span class="text-xs text-gray-400 font-mono">${card.time}</span>
+                            </div>
+                            <div class="flex flex-col items-center px-4 text-morandi-secondary">
+                                <span class="text-xl opacity-70">${transportIcon}</span>
+                                <span class="text-[10px] text-gray-400">⟶</span>
+                            </div>
+                            <div class="flex flex-col text-right">
+                                <span class="text-xs text-gray-400">終點</span>
+                                <span class="font-bold text-gray-700">${card.data.destination || '未設定'}</span>
+                                <span class="text-xs text-gray-400 font-mono">${card.data.arrival_time || '--:--'}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div onclick="openEditModal(${dIdx}, ${cIdx})" 
+                     class="bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition cursor-pointer border border-gray-100 ${borderClass} relative group pb-8">
+                    <div class="flex justify-between items-start">
+                        <div class="flex items-start space-x-3 w-full">
+                            ${card.type !== 'transport' ? `<span class="font-mono text-lg font-bold text-morandi-primary w-12 flex-shrink-0">${card.time}</span>` : ''}
+                            <div class="flex-1">
+                                <h4 class="text-lg font-bold text-morandi-dark flex items-center gap-2">
+                                    <span class="text-morandi-secondary/80">${icon}</span> ${card.name}
+                                </h4>
+                                ${cardContent}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.name + ' ' + window.appData.days[dIdx].city)}" 
+                       target="_blank" 
+                       onclick="event.stopPropagation();"
+                       class="absolute bottom-3 right-3 flex items-center bg-gray-100 hover:bg-morandi-primary hover:text-white text-gray-500 text-xs font-bold px-3 py-1.5 rounded-full transition shadow-sm">
+                        <span>📍 導航</span>
+                    </a>
+                </div>
+            `;
+        }
+
+        // ... (其餘渲染與 Modal 邏輯保持不變，因為 V4 的結構是正確的)
+        function renderDayItinerary(dayIndex) {
+            const container = document.getElementById('itinerary-cards');
+            const day = window.appData.days[dayIndex];
+            
+            renderDayHeader(day.city, day.city_zh);
+            container.innerHTML = '';
+
+            if (day.cards.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 text-gray-300">本日尚無行程，點擊下方按鈕新增</div>`;
+            } else {
+                day.cards.sort((a,b) => a.time.localeCompare(b.time));
+                container.innerHTML = day.cards.map((c, i) => renderCard(c, dayIndex, i)).join('');
+            }
+            
+            container.innerHTML += `
+                <button onclick="openAddCardModal(${dayIndex})" class="w-full py-3 mt-4 border-2 border-dashed border-morandi-primary/30 rounded-xl text-morandi-primary font-bold hover:bg-morandi-primary/5 transition flex items-center justify-center gap-2">
+                    <span class="text-xl font-bold">+</span> 新增行程卡片
+                </button>
+            `;
+        }
+
+        function changeDay(idx) {
+            currentDayIndex = idx;
+            renderDayNavigation();
+            renderDayItinerary(idx);
+        }
+
+        function openAddCardModal(dIdx) {
+            editingCardRef = { dayIndex: dIdx, cardIndex: -1 };
+            renderModalContent({ type: 'sightseeing', time: '10:00', name: '', data: { ticket_status: '需提前購票' } }, true);
+        }
+        function openEditModal(dIdx, cIdx) {
+            editingCardRef = { dayIndex: dIdx, cardIndex: cIdx };
+            renderModalContent(window.appData.days[dIdx].cards[cIdx], false);
+        }
+
+        function renderModalContent(card, isNew) {
+            const modal = document.getElementById('edit-modal');
+            modal.classList.remove('hidden');
+            const content = document.getElementById('modal-content-area');
+            
+            window.updateFormByType = function(type) {
+                const df = document.getElementById('dynamic-fields');
+                let html = '';
+                
+                if(type === 'sightseeing') {
+                    const isBooked = card.data.ticket_status === '已購票';
+                    html = `
+                        <label class="block text-xs font-bold text-gray-500 mt-2">票物狀態</label>
+                        <select id="input-ticket-status" onchange="toggleInput('ticket-link-wrap', this.value === '已購票')" class="w-full p-2 border rounded-lg text-sm mt-1">
+                            <option value="需提前購票" ${card.data.ticket_status==='需提前購票'?'selected':''}>需提前購票</option>
+                            <option value="已購票" ${card.data.ticket_status==='已購票'?'selected':''}>已購票</option>
+                            <option value="當日購票" ${card.data.ticket_status==='當日購票'?'selected':''}>當日購票</option>
+                            <option value="無需購票" ${card.data.ticket_status==='無需購票'?'selected':''}>無需購票</option>
+                        </select>
+                        <div id="ticket-link-wrap" class="${isBooked ? '' : 'hidden'} mt-2 p-2 bg-morandi-green/10 rounded-lg">
+                            <label class="block text-xs font-bold text-morandi-green">購票連結/訂單</label>
+                            <input id="input-ticket-link" value="${card.data.ticket_link||''}" placeholder="請輸入連結 URL" class="w-full p-2 border border-morandi-green/30 rounded-lg text-sm mt-1">
+                        </div>
+                        <label class="block text-xs font-bold text-gray-500 mt-2">導遊故事</label>
+                        <textarea id="input-story" class="w-full p-2 border rounded-lg text-sm mt-1 h-20">${card.data.story||''}</textarea>
+                    `;
+                } else if(type === 'dining' || type === 'cafe') {
+                    const isBooked = card.data.reservation === '已訂位';
+                    html = `
+                         <label class="block text-xs font-bold text-gray-500 mt-2">必吃料理</label>
+                        <input id="input-must-eat" value="${card.data.must_eat||''}" class="w-full p-2 border rounded-lg text-sm mt-1">
+                        <label class="block text-xs font-bold text-gray-500 mt-2">訂位資訊</label>
+                        <select id="input-reservation" onchange="toggleInput('res-link-wrap', this.value === '已訂位')" class="w-full p-2 border rounded-lg text-sm mt-1">
+                            <option value="需提前訂位" ${card.data.reservation==='需提前訂位'?'selected':''}>需提前訂位</option>
+                            <option value="已訂位" ${card.data.reservation==='已訂位'?'selected':''}>已訂位</option>
+                            <option value="無需訂位" ${card.data.reservation==='無需訂位'?'selected':''}>無需訂位</option>
+                        </select>
+                        <div id="res-link-wrap" class="${isBooked ? '' : 'hidden'} mt-2 p-2 bg-morandi-accent/10 rounded-lg">
+                            <label class="block text-xs font-bold text-morandi-accent">訂位連結</label>
+                            <input id="input-link" value="${card.data.link||''}" placeholder="請輸入連結 URL" class="w-full p-2 border border-morandi-accent/30 rounded-lg text-sm mt-1">
+                        </div>
+                         <label class="block text-xs font-bold text-gray-500 mt-2">特別故事</label>
+                        <textarea id="input-story" class="w-full p-2 border rounded-lg text-sm mt-1 h-20">${card.data.story||''}</textarea>
+                    `;
+                } else if (type === 'accommodation') {
+                     const isBooked = card.data.status === '已預訂';
+                     html = `
+                        <label class="block text-xs font-bold text-gray-500 mt-2">地址</label>
+                        <input id="input-address" value="${card.data.address||''}" class="w-full p-2 border rounded-lg text-sm mt-1">
+                        <label class="block text-xs font-bold text-gray-500 mt-2">預訂狀態</label>
+                        <select id="input-status" onchange="toggleInput('book-link-wrap', this.value === '已預訂')" class="w-full p-2 border rounded-lg text-sm mt-1">
+                            <option value="已預訂" ${card.data.status==='已預訂'?'selected':''}>已預訂</option>
+                            <option value="未預訂" ${card.data.status==='未預訂'?'selected':''}>未預訂</option>
+                        </select>
+                        <div id="book-link-wrap" class="${isBooked ? '' : 'hidden'} mt-2 p-2 bg-morandi-green/10 rounded-lg">
+                            <label class="block text-xs font-bold text-morandi-green">訂房連結</label>
+                            <input id="input-booking-link" value="${card.data.booking_link||''}" placeholder="請輸入連結 URL" class="w-full p-2 border border-morandi-green/30 rounded-lg text-sm mt-1">
+                        </div>
+                     `;
+                } else if (type === 'transport') {
+                    html = `
+                        <label class="block text-xs font-bold text-gray-500 mt-2">交通工具</label>
+                        <select id="input-transport-mode" class="w-full p-2 border rounded-lg text-sm mt-1">
+                            <option value="train" ${card.data.transport_mode==='train'?'selected':''}>🚄 火車 (Train)</option>
+                            <option value="bus" ${card.data.transport_mode==='bus'?'selected':''}>🚌 巴士 (Bus)</option>
+                            <option value="plane" ${card.data.transport_mode==='plane'?'selected':''}>✈️ 飛機 (Plane)</option>
+                            <option value="subway" ${card.data.transport_mode==='subway'?'selected':''}>🚇 地鐵 (Subway)</option>
+                        </select>
+                        <div class="flex space-x-2 mt-2">
+                             <div class="flex-1">
+                                <label class="block text-xs font-bold text-gray-500">起點</label>
+                                <input id="input-origin" value="${card.data.origin||''}" placeholder="From" class="w-full p-2 border rounded-lg text-sm mt-1">
+                             </div>
+                             <div class="flex-1">
+                                <label class="block text-xs font-bold text-gray-500">終點</label>
+                                <input id="input-destination" value="${card.data.destination||''}" placeholder="To" class="w-full p-2 border rounded-lg text-sm mt-1">
+                             </div>
+                        </div>
+                         <label class="block text-xs font-bold text-gray-500 mt-2">抵達時間</label>
+                        <input type="time" id="input-arrival-time" value="${card.data.arrival_time||''}" class="w-full p-2 border rounded-lg text-sm mt-1 text-center">
+                    `;
+                } else {
+                    html = `
+                        <label class="block text-xs font-bold text-gray-500 mt-2">詳情</label>
+                        <input id="input-details" value="${card.data.details||''}" class="w-full p-2 border rounded-lg text-sm mt-1">
+                    `;
+                }
+                df.innerHTML = html;
+            }
+
+            window.toggleInput = function(id, show) {
+                const el = document.getElementById(id);
+                if(show) el.classList.remove('hidden');
+                else el.classList.add('hidden');
+            }
+
+            content.innerHTML = `
+                <div class="space-y-3">
+                    <div class="flex space-x-2">
+                        <div class="flex-1">
+                            <label class="text-xs font-bold text-gray-500">類型</label>
+                            <select id="input-type" onchange="updateFormByType(this.value)" class="w-full p-2 border rounded-lg mt-1 bg-gray-50">
+                                <option value="sightseeing" ${card.type==='sightseeing'?'selected':''}>📸 景點</option>
+                                <option value="dining" ${card.type==='dining'?'selected':''}>🍽️ 餐廳</option>
+                                <option value="cafe" ${card.type==='cafe'?'selected':''}>☕ 咖啡</option>
+                                <option value="accommodation" ${card.type==='accommodation'?'selected':''}>🛏️ 住宿</option>
+                                <option value="transport" ${card.type==='transport'?'selected':''}>🚅 交通</option>
+                            </select>
+                        </div>
+                        <div class="w-1/3">
+                            <label class="text-xs font-bold text-gray-500">時間 (出發)</label>
+                            <input type="time" id="input-time" value="${card.time}" class="w-full p-2 border rounded-lg mt-1 text-center bg-gray-50">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs font-bold text-gray-500">名稱</label>
+                        <input type="text" id="input-name" value="${card.name}" placeholder="地點名稱" class="w-full p-3 border rounded-lg mt-1 font-bold text-lg">
+                    </div>
+                    <div id="dynamic-fields" class="bg-gray-50 p-3 rounded-lg"></div>
+                </div>
+            `;
+            window.updateFormByType(card.type);
+        }
+
+        window.saveCardEdit = function() {
+            const type = document.getElementById('input-type').value;
+            const card = {
+                type,
+                time: document.getElementById('input-time').value,
+                name: document.getElementById('input-name').value,
+                data: {}
+            };
+            
+            if (type === 'sightseeing') {
+                card.data.ticket_status = document.getElementById('input-ticket-status').value;
+                card.data.ticket_link = document.getElementById('input-ticket-link') ? document.getElementById('input-ticket-link').value : '';
+                card.data.story = document.getElementById('input-story').value;
+            } else if (type === 'dining' || type === 'cafe') {
+                card.data.must_eat = document.getElementById('input-must-eat').value;
+                card.data.reservation = document.getElementById('input-reservation').value;
+                card.data.link = document.getElementById('input-link') ? document.getElementById('input-link').value : '';
+                card.data.story = document.getElementById('input-story').value;
+            } else if (type === 'accommodation') {
+                card.data.address = document.getElementById('input-address').value;
+                card.data.status = document.getElementById('input-status').value;
+                card.data.booking_link = document.getElementById('input-booking-link') ? document.getElementById('input-booking-link').value : '';
+            } else if (type === 'transport') {
+                card.data.transport_mode = document.getElementById('input-transport-mode').value;
+                card.data.origin = document.getElementById('input-origin').value;
+                card.data.destination = document.getElementById('input-destination').value;
+                card.data.arrival_time = document.getElementById('input-arrival-time').value;
+            } else {
+                card.data.details = document.getElementById('input-details').value;
+            }
+            
+            window.updateCardData(editingCardRef.dayIndex, editingCardRef.cardIndex, card);
+            closeModal();
+            renderDayItinerary(editingCardRef.dayIndex);
+        }
+
+        function closeModal() { document.getElementById('edit-modal').classList.add('hidden'); }
+
+        // --- 記帳與結算 (保留功能) ---
+        function toggleBalance() {
+            const el = document.getElementById('balance-content');
+            const arrow = document.getElementById('balance-arrow');
+            el.classList.toggle('hidden');
+            arrow.classList.toggle('rotate-180');
+            if(!el.classList.contains('hidden')) renderBalance();
+        }
+
+        function renderBalance() {
+            const container = document.getElementById('balance-list');
+            let balances = {}; 
+
+            window.accountingData.entries.forEach(e => {
+                const cur = e.currency;
+                const amt = parseFloat(e.amount);
+                const payers = e.payer; 
+                const parts = e.participants;
+                
+                if(!balances[cur]) balances[cur] = 0;
+                if(payers === 'Felix') balances[cur] += amt;
+                if(parts.includes('Felix')) balances[cur] -= (amt / parts.length);
+            });
+
+            let html = '';
+            for(const [cur, net] of Object.entries(balances)) {
+                if(Math.abs(net) < 1) continue;
+                const abs = Math.abs(net).toFixed(1);
+                if(net > 0) {
+                     html += `<div class="flex justify-between p-2 bg-green-50 text-green-800 rounded"><span>${cur} ${abs}</span><span class="text-xs">Esther 給 Felix</span></div>`;
+                } else {
+                     html += `<div class="flex justify-between p-2 bg-red-50 text-red-800 rounded"><span>${cur} ${abs}</span><span class="text-xs">Felix 給 Esther</span></div>`;
+                }
+            }
+            container.innerHTML = html || '<div class="text-center text-gray-400">目前沒有欠款</div>';
+        }
+
+        window.editExpense = function(id) {
+            const entry = window.accountingData.entries.find(e => e.id === id);
+            if(!entry) return;
+            editingExpenseId = id;
+            document.getElementById('expense-date').value = entry.date;
+            document.getElementById('expense-currency').value = entry.currency;
+            document.getElementById('expense-desc').value = entry.desc;
+            document.getElementById('expense-amount').value = entry.amount;
+            document.getElementById('expense-category').value = entry.category;
+            document.querySelector(`input[name="payer"][value="${entry.payer}"]`).checked = true;
+            document.querySelectorAll(`input[name="participant"]`).forEach(c => c.checked = entry.participants.includes(c.value));
+            document.getElementById('form-title').textContent = '編輯支出';
+            document.getElementById('submit-btn').textContent = '更新紀錄';
+            document.getElementById('cancel-edit-btn').classList.remove('hidden');
+            document.getElementById('accounting-form').scrollIntoView({behavior: 'smooth'});
+        }
+
+        window.cancelEdit = function() {
+            editingExpenseId = null;
+            document.getElementById('accounting-form').reset();
+            document.getElementById('expense-date').valueAsDate = new Date();
+            document.getElementById('form-title').textContent = '新增支出';
+            document.getElementById('submit-btn').textContent = '新增紀錄';
+            document.getElementById('cancel-edit-btn').classList.add('hidden');
+        }
+
+        document.getElementById('accounting-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const entry = {
+                id: editingExpenseId || Date.now().toString(),
+                date: document.getElementById('expense-date').value,
+                currency: document.getElementById('expense-currency').value,
+                desc: document.getElementById('expense-desc').value,
+                amount: parseFloat(document.getElementById('expense-amount').value),
+                category: document.getElementById('expense-category').value,
+                payer: document.querySelector('input[name="payer"]:checked').value,
+                participants: Array.from(document.querySelectorAll('input[name="participant"]:checked')).map(c => c.value),
+                timestamp: Date.now()
+            };
+
+            if(editingExpenseId) {
+                const idx = window.accountingData.entries.findIndex(x => x.id === editingExpenseId);
+                if(idx !== -1) window.accountingData.entries[idx] = entry;
+            } else {
+                window.accountingData.entries.push(entry);
+            }
+
+            saveAccountingToFirestore();
+            renderAccountingList();
+            cancelEdit();
+        });
+
+        function renderAccountingList() {
+            const container = document.getElementById('expense-list');
+            const entries = window.accountingData.entries.sort((a,b) => b.date.localeCompare(a.date));
+            container.innerHTML = entries.map(e => `
+                <div onclick="editExpense('${e.id}')" class="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-transparent hover:border-morandi-primary cursor-pointer transition">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold ${e.payer==='Felix'?'bg-morandi-primary':'bg-morandi-accent'}">${e.payer[0]}</div>
+                        <div>
+                            <div class="font-bold text-morandi-dark text-sm">${e.desc}</div>
+                            <div class="text-xs text-gray-400">${e.date} • ${e.category}</div>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="font-bold text-morandi-dark">${e.currency} ${e.amount}</div>
+                        <div class="text-[10px] text-gray-400">for ${e.participants.join(', ')}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function switchTab(id) {
+            document.querySelectorAll('button[id^="tab-"]').forEach(b => { b.classList.remove('tab-active'); b.classList.add('text-morandi-secondary'); });
+            document.getElementById('tab-'+id).classList.add('tab-active');
+            document.getElementById('tab-'+id).classList.remove('text-morandi-secondary');
+            document.getElementById('itinerary-view').classList.add('hidden');
+            document.getElementById('budget-view').classList.add('hidden');
+            document.getElementById(id+'-view').classList.remove('hidden');
+            if(id === 'itinerary') renderAll();
+            if(id === 'budget') renderAccountingList();
+        }
+
+        function renderAll() {
+            document.getElementById('loading-indicator').classList.add('hidden');
+            renderDayNavigation();
+            renderDayItinerary(currentDayIndex);
+        }
+
+        document.getElementById('expense-date').valueAsDate = new Date();
+        document.addEventListener('DOMContentLoaded', () => { switchTab('itinerary'); });
+
+    </script>
+</body>
+</html>
