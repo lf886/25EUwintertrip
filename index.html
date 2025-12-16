@@ -7,8 +7,8 @@
     
     <!-- PWA Settings -->
     <link rel="manifest" href="manifest.json">
-    <link rel="icon" type="image/png" href="icon.png">
-    <link rel="apple-touch-icon" href="icon.png">
+    <link rel="icon" type="image/png" href="icon.png?v=3">
+    <link rel="apple-touch-icon" sizes="180x180" href="icon.png?v=3">
     <meta name="theme-color" content="#B08968">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -95,7 +95,7 @@
             <!-- Clickable Title to go Home -->
             <div onclick="switchTab('itinerary')" class="cursor-pointer flex items-center gap-2">
                 <!-- Tiny icon in header as well -->
-                <img src="icon.png" class="w-8 h-8 rounded-lg shadow-sm" onerror="this.style.display='none'">
+                <img src="icon.png?v=3" class="w-8 h-8 rounded-lg shadow-sm" onerror="this.style.display='none'">
                 <div>
                     <h1 class="text-xl font-bold text-morandi-dark tracking-wide">菲&伊的冬季旅記 🎄</h1>
                     <p class="text-[10px] text-morandi-accent font-medium leading-none">2025/12/21 - 2026/01/04</p>
@@ -1996,17 +1996,9 @@
                         document.getElementById('todo-hidden-image-data').value = dataUrl;
                         
                         const previewContainer = document.getElementById('todo-image-upload-area');
-                        // Updated Image Upload UI for Todo: Side-by-side buttons on hover
                         previewContainer.innerHTML = `
                             <img src="${dataUrl}" class="w-full h-full object-cover block rounded-lg">
-                            <div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10 group">
-                                <button onclick="document.getElementById('todo-file-upload').click()" class="text-white text-xs font-bold border border-white/50 bg-black/20 hover:bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">
-                                    更換
-                                </button>
-                                <button onclick="removeImage('todo'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300/50 bg-red-500/40 hover:bg-red-500/60 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除
-                                </button>
-                            </div>
+                            <div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 group"><button onclick="document.getElementById('todo-file-upload').click()" class="text-white text-xs font-bold border border-white bg-white/20 hover:bg-white/30 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105">更換</button><button onclick="removeImage('todo'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300 bg-red-500/40 hover:bg-red-500/70 backdrop-blur-md px-3 py-1.5 rounded-lg transition flex items-center gap-1 hover:scale-105"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除</button></div>
                         `;
                     }
                     img.src = e.target.result;
