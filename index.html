@@ -1642,7 +1642,13 @@
             document.getElementById('delete-todo-btn').classList.add('hidden'); 
             document.getElementById('join-itinerary-btn').classList.add('hidden'); // Hide join button for new items
             document.getElementById('todo-item-modal').classList.remove('hidden'); 
-            toggleTodoCategory('todo'); // Default to todo view
+            
+            // Auto-select category based on current tab
+            const typeSelect = document.getElementById('todo-type');
+            if (typeSelect) {
+                typeSelect.value = currentTodoTab;
+            }
+            toggleTodoCategory(currentTodoTab);
         }
         window.closeTodoModal = function() { document.getElementById('todo-item-modal').classList.add('hidden'); }
         
@@ -1728,7 +1734,7 @@
             // Updated Image Upload UI for Todo: Side-by-side buttons on hover
             if(existingImage) { 
                 previewContainer.innerHTML = `
-                    <img src="${existingImage}" class="w-full h-full object-cover block rounded-lg">
+                    <img src="${existingImage}" class="w-full h-full object-contain block rounded-lg bg-gray-50">
                     <div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10 group">
                         <button onclick="document.getElementById('todo-file-upload').click()" class="text-white text-xs font-bold border border-white/50 bg-black/20 hover:bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">
                             更換
@@ -1997,7 +2003,7 @@
                         
                         const previewContainer = document.getElementById('todo-image-upload-area');
                         previewContainer.innerHTML = `
-                            <img src="${dataUrl}" class="w-full h-full object-cover block rounded-lg">
+                            <img src="${dataUrl}" class="w-full h-full object-contain block rounded-lg bg-gray-50">
                             <div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 group"><button onclick="document.getElementById('todo-file-upload').click()" class="text-white text-xs font-bold border border-white bg-white/20 hover:bg-white/30 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105">更換</button><button onclick="removeImage('todo'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300 bg-red-500/40 hover:bg-red-500/70 backdrop-blur-md px-3 py-1.5 rounded-lg transition flex items-center gap-1 hover:scale-105"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除</button></div>
                         `;
                     }
