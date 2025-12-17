@@ -374,7 +374,7 @@
             <div class="p-6 pt-12 overflow-y-auto flex-1 bg-white">
                 <h3 id="form-title" class="text-xl font-bold mb-6 text-morandi-dark pl-2 border-l-4 border-morandi-primary">新增支出</h3>
                 <form id="accounting-form" class="space-y-4">
-                    <!-- Accounting Form Fields (Same as before) -->
+                    <!-- Accounting Form Fields -->
                     <div class="grid grid-cols-3 gap-3">
                         <div class="col-span-2">
                             <label class="text-xs text-gray-400 mb-1 block">日期</label>
@@ -573,9 +573,8 @@
         let unsubscribeAccounting = null;
         let unsubscribeTodo = null;
 
-        // Data Patching Map (Auto-fix old data structure)
         const CITY_INFO_MAP = {
-            'Wien': { country: 'Austria', cityCode: '2761369', city: 'Vienna' }, // Map Wien to Vienna for widget
+            'Wien': { country: 'Austria', cityCode: '2761369', city: 'Vienna' },
             'Vienna': { country: 'Austria', cityCode: '2761369' },
             'Prague': { country: 'Czechia', cityCode: '3067696' },
             'Nürnberg': { country: 'Germany', cityCode: '2861650' },
@@ -622,29 +621,18 @@
             unsubscribeItinerary = onSnapshot(ITINERARY_DOC_REF, (docSnap) => {
                 if (docSnap.exists() && docSnap.data().data) {
                     window.appData = docSnap.data().data;
-                    
-                    // --- Auto-Patch: Fix missing country/cityCode for old data ---
                     let needsUpdate = false;
                     window.appData.days.forEach(day => {
-                        // Patch missing country/cityCode or update Wien -> Vienna for widget compatibility
-                        const mapInfo = CITY_INFO_MAP[day.city] || CITY_INFO_MAP['Vienna']; // Fallback check
-                        
+                        const mapInfo = CITY_INFO_MAP[day.city] || CITY_INFO_MAP['Vienna'];
                         if (mapInfo) {
                             if (!day.country) { day.country = mapInfo.country; needsUpdate = true; }
                             if (!day.cityCode) { day.cityCode = mapInfo.cityCode; needsUpdate = true; }
-                            if (day.city === 'Wien') { day.city = 'Vienna'; needsUpdate = true; } // Update city name for widget
+                            if (day.city === 'Wien') { day.city = 'Vienna'; needsUpdate = true; }
                         }
                     });
-                    
-                    if(needsUpdate) {
-                        console.log("Auto-patching legacy data...");
-                        saveDataToFirestore();
-                    }
-                    // -------------------------------------------------------------
-                    
+                    if(needsUpdate) { saveDataToFirestore(); }
                     renderAll();
                 } else {
-                    updateStatus('初始化資料庫中...', false);
                     window.appData = initialItineraryData;
                     saveDataToFirestore().then(() => updateStatus('已連線至雲端'));
                     renderAll(); 
@@ -674,7 +662,10 @@
 
         window.saveDataToFirestore = async function() {
             try { await setDoc(ITINERARY_DOC_REF, { data: window.appData }, { merge: true }); } 
-            catch(e) { console.error("Save Error:", e); }
+            catch(e) { 
+                console.error("Save Error:", e);
+                alert("儲存失敗：資料可能過大 (超過1MB)，請嘗試刪除一些舊照片或使用較小的圖片。");
+            }
         }
 
         window.saveAccountingToFirestore = async function() {
@@ -684,7 +675,10 @@
 
         window.saveTodoToFirestore = async function() {
             try { await setDoc(TODO_DOC_REF, { data: window.todoData }, { merge: true }); } 
-            catch(e) { console.error("Save Todo Error:", e); }
+            catch(e) { 
+                console.error("Save Todo Error:", e);
+                alert("儲存清單失敗：資料可能過大，請嘗試減少圖片數量。");
+            }
         }
 
         initApp();
@@ -721,13 +715,12 @@
         let dragSrcEl = null;
         let dragSrcIndex = null;
         let currentTodoTab = 'todo'; 
-        let pendingTodoId = null; // New: For tracking which todo is being added to itinerary
+        let pendingTodoId = null;
 
         window.appData = { days: [] };
         window.accountingData = { entries: [] };
         window.todoData = { items: [] };
 
-        // 漢堡選單邏輯
         window.toggleMenu = function() {
             const menu = document.getElementById('nav-menu');
             const overlay = document.getElementById('menu-overlay');
@@ -755,23 +748,16 @@
             }
         };
 
-        // --- Mobile Move Card (No Drag) ---
         window.moveCard = function(direction) {
             const { dayIndex, cardIndex } = editingCardRef;
-            if (cardIndex === -1 || cardIndex === 'header') return; // Cannot move new card or header
-            
+            if (cardIndex === -1 || cardIndex === 'header') return;
             const cards = window.appData.days[dayIndex].cards;
             const newIndex = cardIndex + direction;
-            
             if (newIndex >= 0 && newIndex < cards.length) {
-                // Swap
                 const temp = cards[cardIndex];
                 cards[cardIndex] = cards[newIndex];
                 cards[newIndex] = temp;
-                
-                // Update local ref for subsequent moves
                 editingCardRef.cardIndex = newIndex; 
-                
                 saveDataToFirestore();
                 renderDayItinerary(dayIndex);
             }
@@ -801,24 +787,13 @@
         function renderDayNavigation() {
             const nav = document.getElementById('day-navigation');
             if(!window.appData.days || window.appData.days.length === 0) return;
-
             const daysOfWeek = ['日', '一', '二', '三', '四', '五', '六'];
-
             nav.innerHTML = window.appData.days.map((day, index) => {
-                const activeClass = index === currentDayIndex 
-                    ? 'bg-morandi-primary text-white shadow-md scale-105' 
-                    : 'bg-white text-morandi-secondary border border-gray-100 hover:bg-gray-50';
-                
+                const activeClass = index === currentDayIndex ? 'bg-morandi-primary text-white shadow-md scale-105' : 'bg-white text-morandi-secondary border border-gray-100 hover:bg-gray-50';
                 const dateObj = new Date(day.date);
                 const dayOfWeek = daysOfWeek[dateObj.getDay()];
                 const dateStr = day.date.slice(5); 
-
-                return `
-                    <button onclick="changeDay(${index})" class="flex-shrink-0 min-w-[80px] p-2 rounded-2xl transition-all duration-300 ${activeClass} flex flex-col items-center justify-center h-16">
-                        <div class="text-xs font-bold opacity-90">${dateStr}(${dayOfWeek})</div>
-                        <div class="text-sm font-bold mt-0.5 truncate w-full text-center">${day.city_zh}</div>
-                    </button>
-                `;
+                return `<button onclick="changeDay(${index})" class="flex-shrink-0 min-w-[80px] p-2 rounded-2xl transition-all duration-300 ${activeClass} flex flex-col items-center justify-center h-16"><div class="text-xs font-bold opacity-90">${dateStr}(${dayOfWeek})</div><div class="text-sm font-bold mt-0.5 truncate w-full text-center">${day.city_zh}</div></button>`;
             }).join('');
         }
 
@@ -831,19 +806,11 @@
             const container = document.getElementById('header-img-wrapper');
             const cityText = document.getElementById('header-city');
             const weatherText = document.getElementById('header-weather');
-
             if (day.image) {
                 container.innerHTML = `<img src="${day.image}" class="w-full h-full object-cover transition-opacity duration-700">`;
             } else {
-                container.innerHTML = `
-                    <div class="w-full h-full bg-gray-200 flex flex-col items-center justify-center text-gray-400">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        <span class="text-sm font-bold">點擊上傳城市封面</span>
-                    </div>
-                `;
+                container.innerHTML = `<div class="w-full h-full bg-gray-200 flex flex-col items-center justify-center text-gray-400"><svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span class="text-sm font-bold">點擊上傳城市封面</span></div>`;
             }
-            
-            // Format: Chinese English
             cityText.textContent = `${cityZh} ${day.city || ''}`;
             weatherText.textContent = ''; 
         }
@@ -866,48 +833,12 @@
             let showMapIcon = true; 
 
             switch(card.type) {
-                case 'sightseeing': 
-                    typeLabel = 'SCENERY'; 
-                    typeColorClass = 'text-morandi-green'; 
-                    typeBgClass = 'bg-morandi-green/10';
-                    borderColorClass = 'border-morandi-green';
-                    shadowColorClass = 'shadow-morandi-green/10';
-                    break;
-                case 'dining': 
-                    typeLabel = 'DINING'; 
-                    typeColorClass = 'text-morandi-blue'; 
-                    typeBgClass = 'bg-morandi-blue/10';
-                    borderColorClass = 'border-morandi-blue';
-                    shadowColorClass = 'shadow-morandi-blue/10';
-                    break;
-                case 'cafe': 
-                    typeLabel = 'CAFE'; 
-                    typeColorClass = 'text-morandi-orange'; 
-                    typeBgClass = 'bg-morandi-orange/10';
-                    borderColorClass = 'border-morandi-orange';
-                    shadowColorClass = 'shadow-morandi-orange/10';
-                    break;
-                case 'accommodation': 
-                    typeLabel = 'HOTEL'; 
-                    typeColorClass = 'text-morandi-accent'; 
-                    typeBgClass = 'bg-morandi-accent/10';
-                    borderColorClass = 'border-morandi-accent';
-                    shadowColorClass = 'shadow-morandi-accent/10';
-                    break;
-                case 'transport': 
-                    typeLabel = 'TRANSPORT'; 
-                    typeColorClass = 'text-gray-500'; 
-                    typeBgClass = 'bg-gray-100';
-                    borderColorClass = 'border-gray-300';
-                    shadowColorClass = 'shadow-gray-200/10';
-                    showMapIcon = false; 
-                    break;
-                default: 
-                    typeLabel = 'ACTIVITY'; 
-                    typeColorClass = 'text-gray-500'; 
-                    typeBgClass = 'bg-gray-100';
-                    borderColorClass = 'border-gray-200';
-                    shadowColorClass = 'shadow-gray-200/10';
+                case 'sightseeing': typeLabel = 'SCENERY'; typeColorClass = 'text-morandi-green'; typeBgClass = 'bg-morandi-green/10'; borderColorClass = 'border-morandi-green'; shadowColorClass = 'shadow-morandi-green/10'; break;
+                case 'dining': typeLabel = 'DINING'; typeColorClass = 'text-morandi-blue'; typeBgClass = 'bg-morandi-blue/10'; borderColorClass = 'border-morandi-blue'; shadowColorClass = 'shadow-morandi-blue/10'; break;
+                case 'cafe': typeLabel = 'CAFE'; typeColorClass = 'text-morandi-orange'; typeBgClass = 'bg-morandi-orange/10'; borderColorClass = 'border-morandi-orange'; shadowColorClass = 'shadow-morandi-orange/10'; break;
+                case 'accommodation': typeLabel = 'HOTEL'; typeColorClass = 'text-morandi-accent'; typeBgClass = 'bg-morandi-accent/10'; borderColorClass = 'border-morandi-accent'; shadowColorClass = 'shadow-morandi-accent/10'; break;
+                case 'transport': typeLabel = 'TRANSPORT'; typeColorClass = 'text-gray-500'; typeBgClass = 'bg-gray-100'; borderColorClass = 'border-gray-300'; shadowColorClass = 'shadow-gray-200/10'; showMapIcon = false; break;
+                default: typeLabel = 'ACTIVITY'; typeColorClass = 'text-gray-500'; typeBgClass = 'bg-gray-100'; borderColorClass = 'border-gray-200'; shadowColorClass = 'shadow-gray-200/10';
             }
 
             const showLink = (status, link) => status && status.includes('已') && link;
@@ -928,58 +859,30 @@
 
             let imageSection = '';
             if (card.data.image) {
-                // Map button is now inside the image section
-                const mapBtnHtml = `
-                    <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.name + ' ' + window.appData.days[dIdx].city)}" 
-                       target="_blank" 
-                       onclick="event.stopPropagation();"
-                       class="absolute bottom-3 right-3 w-10 h-10 bg-white/90 backdrop-blur-sm rounded-full shadow-md flex items-center justify-center text-morandi-dark hover:text-morandi-primary hover:scale-110 active:scale-95 transition z-20">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
-                    </a>
-                `;
-
-                imageSection = `
-                    <div class="h-36 w-full relative overflow-hidden bg-gray-100 border-b border-gray-100 shrink-0">
-                        <img src="${card.data.image}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 block" loading="lazy" draggable="false">
-                        ${showMapIcon ? mapBtnHtml : ''}
-                    </div>
-                `;
+                const mapBtnHtml = `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.name + ' ' + window.appData.days[dIdx].city)}" target="_blank" onclick="event.stopPropagation();" class="absolute bottom-3 right-3 w-10 h-10 bg-white/90 backdrop-blur-sm rounded-full shadow-md flex items-center justify-center text-morandi-dark hover:text-morandi-primary hover:scale-110 active:scale-95 transition z-20"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></a>`;
+                imageSection = `<div class="h-36 w-full relative overflow-hidden bg-gray-100 border-b border-gray-100 shrink-0"><img src="${card.data.image}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 block" loading="lazy" draggable="false">${showMapIcon ? mapBtnHtml : ''}</div>`;
             }
 
             if (card.type === 'transport') {
                 let vehicleIcon = '';
-                // Updated Simple Line Style Icons
-                if (card.data.vehicle === '火車') {
-                    // Train Front View Outline
-                    vehicleIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" /><path d="M3 11h18" /><path d="M8 15h.01" /><path d="M16 15h.01" /><path d="M6 19l-2 3" /><path d="M18 19l2 3" /></svg>'; 
-                }
-                else if (card.data.vehicle === '客運' || card.data.vehicle === 'Bus') {
-                    // Bus Side View Outline
-                    vehicleIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="10" rx="3" /><path d="M2 12h20" /><path d="M9 6v6" /><path d="M15 6v6" /><path d="M7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" /><path d="M17 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" /></svg>';
-                }
-                else if (card.data.vehicle === '飛機' || card.data.vehicle === 'Plane') {
-                    // Plane Top View Outline (Rotated to point right)
-                    // Updated to a better side profile looking plane that points right
-                    vehicleIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" transform="rotate(90, 12, 12)"/></svg>';
-                } 
-                else if (card.data.vehicle === '地鐵' || card.data.vehicle === 'Subway') {
-                    // Subway Front View with Pantograph
-                    vehicleIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="2" /><path d="M4 11h16" /><path d="M8 15h.01" /><path d="M16 15h.01" /><path d="M8 2h8" /><path d="M12 2v3" /></svg>'; 
-                }
-                else {
-                    // Default Map Pin
-                    vehicleIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>';
+                if (card.data.vehicle === '火車') { vehicleIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" /><path d="M3 11h18" /><path d="M8 15h.01" /><path d="M16 15h.01" /><path d="M6 19l-2 3" /><path d="M18 19l2 3" /></svg>'; }
+                else if (card.data.vehicle === '客運' || card.data.vehicle === 'Bus') { vehicleIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="10" rx="3" /><path d="M2 12h20" /><path d="M9 6v6" /><path d="M15 6v6" /><path d="M7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" /><path d="M17 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" /></svg>'; }
+                else if (card.data.vehicle === '飛機' || card.data.vehicle === 'Plane') { vehicleIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" transform="rotate(90, 12, 12)"/></svg>'; } 
+                else if (card.data.vehicle === '地鐵' || card.data.vehicle === 'Subway') { vehicleIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="2" /><path d="M4 11h16" /><path d="M8 15h.01" /><path d="M16 15h.01" /><path d="M8 2h8" /><path d="M12 2v3" /></svg>'; }
+                else { vehicleIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>'; }
+
+                let transportBookingBtn = '';
+                if (card.data.booking_link) {
+                    // Button width aligned with the middle column (same as arrow)
+                    transportBookingBtn = `
+                        <a href="${card.data.booking_link}" target="_blank" onclick="event.stopPropagation();" 
+                           class="mt-2 text-[10px] font-bold text-blue-500 bg-blue-50/50 hover:bg-blue-100 border border-blue-100 px-1 py-0.5 rounded-md transition shadow-sm flex items-center justify-center gap-0.5 whitespace-nowrap w-full max-w-[60px]">
+                            查看訂單
+                        </a>`;
                 }
 
                 return `
-                    <div draggable="true" 
-                         data-index="${cIdx}"
-                         ondragstart="handleDragStart(event)" 
-                         ondragover="handleDragOver(event)" 
-                         ondrop="handleDrop(event)"
-                         onclick="openEditModal(${dIdx}, ${cIdx})" 
-                         class="group bg-white rounded-2xl shadow-md ${shadowColorClass} transition-all duration-300 overflow-hidden relative cursor-pointer transform hover:-translate-y-1 border-l-4 ${borderColorClass}">
-                        
+                    <div draggable="true" data-index="${cIdx}" ondragstart="handleDragStart(event)" ondragover="handleDragOver(event)" ondrop="handleDrop(event)" onclick="openEditModal(${dIdx}, ${cIdx})" class="group bg-white rounded-2xl shadow-md ${shadowColorClass} transition-all duration-300 overflow-hidden relative cursor-pointer transform hover:-translate-y-1 border-l-4 ${borderColorClass}">
                         <div class="p-6 py-8 flex items-center justify-between text-morandi-dark">
                             <div class="flex flex-col items-center w-1/3 text-center px-1">
                                 <div class="text-lg font-black text-gray-800 leading-tight mb-1 w-full break-words whitespace-normal">${card.data.origin || '出發地'}</div>
@@ -988,6 +891,7 @@
                             <div class="flex flex-col items-center w-1/3 px-1">
                                 <div class="text-morandi-primary mb-1 opacity-80 scale-125">${vehicleIcon}</div>
                                 <div class="text-gray-300 font-light text-2xl leading-none" style="margin-top: -5px;">⟶</div>
+                                ${transportBookingBtn}
                             </div>
                             <div class="flex flex-col items-center w-1/3 text-center px-1">
                                 <div class="text-lg font-black text-gray-800 leading-tight mb-1 w-full break-words whitespace-normal">${card.data.destination || '目的地'}</div>
@@ -998,23 +902,13 @@
                 `;
             }
 
-            // Map button logic removed from here as it is now inside imageSection
-
             let noteContent = '';
             if (card.data.story) noteContent = `<p class="mt-2 text-sm text-gray-500 leading-relaxed">${card.data.story}</p>`;
             if (card.data.must_eat) noteContent = `<p class="text-xs text-gray-500 bg-gray-50 p-2 rounded-lg inline-block mb-2">🍴 必吃：${card.data.must_eat}</p>` + noteContent;
 
             return `
-                <div draggable="true" 
-                     data-index="${cIdx}"
-                     ondragstart="handleDragStart(event)" 
-                     ondragover="handleDragOver(event)" 
-                     ondrop="handleDrop(event)"
-                     onclick="openEditModal(${dIdx}, ${cIdx})" 
-                     class="group bg-white rounded-2xl shadow-md ${shadowColorClass} transition-all duration-300 overflow-hidden relative cursor-pointer transform hover:-translate-y-1 border-l-4 ${borderColorClass}">
-                    
+                <div draggable="true" data-index="${cIdx}" ondragstart="handleDragStart(event)" ondragover="handleDragOver(event)" ondrop="handleDrop(event)" onclick="openEditModal(${dIdx}, ${cIdx})" class="group bg-white rounded-2xl shadow-md ${shadowColorClass} transition-all duration-300 overflow-hidden relative cursor-pointer transform hover:-translate-y-1 border-l-4 ${borderColorClass}">
                     ${imageSection}
-
                     <div class="flex flex-row items-stretch min-h-[100px]">
                         <div class="w-20 shrink-0 flex flex-col items-center justify-center border-r border-gray-100 bg-gray-50/50 py-4">
                              <span class="text-xl font-black text-gray-800 tracking-tight">${card.time}</span>
@@ -1063,44 +957,18 @@
             }
             const day = window.appData.days[dayIndex];
             renderDayHeader(day.city, day.city_zh);
-            container.innerHTML = (!day.cards || day.cards.length === 0) 
-                ? `<div class="text-center py-12 text-gray-300">本日尚無行程，點擊下方按鈕新增</div>`
-                : day.cards.map((c, i) => renderCard(c, dayIndex, i)).join('');
-            
-            container.innerHTML += `
-                <button onclick="openAddCardModal(${dayIndex})" class="w-full py-4 mt-4 border-2 border-dashed border-morandi-primary/20 rounded-3xl text-morandi-primary font-bold hover:bg-morandi-primary/5 transition flex items-center justify-center gap-2 group">
-                    <span class="bg-morandi-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm group-hover:scale-100 transition">+</span> 
-                    <span>Add New Activity</span>
-                </button>
-            `;
+            container.innerHTML = (!day.cards || day.cards.length === 0) ? `<div class="text-center py-12 text-gray-300">本日尚無行程，點擊下方按鈕新增</div>` : day.cards.map((c, i) => renderCard(c, dayIndex, i)).join('');
+            container.innerHTML += `<button onclick="openAddCardModal(${dayIndex})" class="w-full py-4 mt-4 border-2 border-dashed border-morandi-primary/20 rounded-3xl text-morandi-primary font-bold hover:bg-morandi-primary/5 transition flex items-center justify-center gap-2 group"><span class="bg-morandi-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm group-hover:scale-100 transition">+</span> <span>Add New Activity</span></button>`;
         }
 
-        function changeDay(idx) {
-            currentDayIndex = idx;
-            renderDayNavigation();
-            renderDayItinerary(idx);
-        }
+        function changeDay(idx) { currentDayIndex = idx; renderDayNavigation(); renderDayItinerary(idx); }
 
-        // --- City Header Edit ---
         window.openCityModal = function(dayIndex) {
             editingCardRef = { dayIndex: dayIndex, cardIndex: 'header' };
             const day = window.appData.days[dayIndex];
-            
-            const dummyCityCard = {
-                type: 'city_header',
-                data: {
-                    image: day.image || '',
-                    cityCode: day.cityCode || '',
-                    city_zh: day.city_zh || '',
-                    city: day.city || '',
-                    country: day.country || '',
-                    id: day.id,
-                    date: day.date
-                }
-            };
-            
-            document.getElementById('delete-card-btn').classList.add('hidden'); // Cannot delete city
-            document.getElementById('mobile-reorder-controls').classList.add('hidden'); // Cannot reorder city header
+            const dummyCityCard = { type: 'city_header', data: { image: day.image || '', cityCode: day.cityCode || '', city_zh: day.city_zh || '', city: day.city || '', country: day.country || '', id: day.id, date: day.date } };
+            document.getElementById('delete-card-btn').classList.add('hidden');
+            document.getElementById('mobile-reorder-controls').classList.add('hidden');
             renderModalContent(dummyCityCard, false);
             document.getElementById('edit-modal').classList.remove('hidden');
         }
@@ -1108,14 +976,14 @@
         function openAddCardModal(dIdx) {
             editingCardRef = { dayIndex: dIdx, cardIndex: -1 };
             document.getElementById('delete-card-btn').classList.add('hidden');
-            document.getElementById('mobile-reorder-controls').classList.add('hidden'); // Cannot reorder new card
+            document.getElementById('mobile-reorder-controls').classList.add('hidden');
             renderModalContent({ type: 'sightseeing', time: '10:00', name: '', data: { ticket_status: '需提前購票' } }, true);
             document.getElementById('edit-modal').classList.remove('hidden');
         }
         function openEditModal(dIdx, cIdx) {
             editingCardRef = { dayIndex: dIdx, cardIndex: cIdx };
             document.getElementById('delete-card-btn').classList.remove('hidden');
-            document.getElementById('mobile-reorder-controls').classList.remove('hidden'); // Can reorder existing card
+            document.getElementById('mobile-reorder-controls').classList.remove('hidden');
             renderModalContent(window.appData.days[dIdx].cards[cIdx], false);
             document.getElementById('edit-modal').classList.remove('hidden');
         }
@@ -1138,7 +1006,6 @@
 
         function renderModalContent(card, isNew) {
             const content = document.getElementById('modal-content-area');
-            
             window.handleImageUpload = function(event) {
                 const file = event.target.files[0];
                 if (file) {
@@ -1148,27 +1015,15 @@
                         img.onload = function() {
                             const canvas = document.createElement('canvas');
                             const ctx = canvas.getContext('2d');
-                            const MAX_WIDTH = 800; 
+                            const MAX_WIDTH = 600; 
                             const scaleSize = MAX_WIDTH / img.width;
-                            canvas.width = MAX_WIDTH;
-                            canvas.height = img.height * scaleSize;
+                            canvas.width = MAX_WIDTH; canvas.height = img.height * scaleSize;
                             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
                             document.getElementById('hidden-image-data').value = dataUrl;
                             const previewContainer = document.getElementById('image-upload-area');
                             document.getElementById('image-section-container').classList.replace('h-16', 'h-56');
-                            // Updated Image Upload UI: Side-by-side buttons on hover
-                            previewContainer.innerHTML = `
-                                <img src="${dataUrl}" class="w-full h-full object-cover block">
-                                <div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10 group">
-                                    <button onclick="document.getElementById('file-upload').click()" class="text-white text-xs font-bold border border-white/50 bg-black/20 hover:bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">
-                                        更換
-                                    </button>
-                                    <button onclick="removeImage('card'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300/50 bg-red-500/40 hover:bg-red-500/60 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除
-                                    </button>
-                                </div>
-                            `;
+                            previewContainer.innerHTML = `<img src="${dataUrl}" class="w-full h-full object-cover block"><div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10 group"><button onclick="document.getElementById('file-upload').click()" class="text-white text-xs font-bold border border-white/50 bg-black/20 hover:bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">更換</button><button onclick="removeImage('card'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300/50 bg-red-500/40 hover:bg-red-500/60 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除</button></div>`;
                         }
                         img.src = e.target.result;
                     }
@@ -1177,406 +1032,102 @@
             }
 
             window.updateFormByType = function(type) {
-                // City Header Special Layout
                 if (type === 'city_header') {
                     const existingImage = card.data.image;
-                    let imageArea = existingImage ? 
-                        `<img src="${existingImage}" class="w-full h-full object-cover block"><div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10 group"><button onclick="document.getElementById('file-upload').click()" class="text-white text-xs font-bold border border-white/50 bg-black/20 hover:bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">更換</button><button onclick="removeImage('card'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300/50 bg-red-500/40 hover:bg-red-500/60 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除</button></div>` : 
-                        `<div class="w-full h-full bg-gray-50 flex flex-col items-center justify-center text-gray-400 group-hover:bg-gray-100 transition cursor-pointer" onclick="document.getElementById('file-upload').click()"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mb-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span class="text-xs font-bold">點擊上傳封面</span></div>`;
-                    
+                    let imageArea = existingImage ? `<img src="${existingImage}" class="w-full h-full object-cover block"><div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10 group"><button onclick="document.getElementById('file-upload').click()" class="text-white text-xs font-bold border border-white/50 bg-black/20 hover:bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">更換</button><button onclick="removeImage('card'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300/50 bg-red-500/40 hover:bg-red-500/60 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除</button></div>` : `<div class="w-full h-full bg-gray-50 flex flex-col items-center justify-center text-gray-400 group-hover:bg-gray-100 transition cursor-pointer" onclick="document.getElementById('file-upload').click()"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mb-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span class="text-xs font-bold">點擊上傳封面</span></div>`;
                     const topImageSection = `<div id="image-section-container" class="relative w-full ${existingImage ? 'h-56' : 'h-16'} transition-all duration-300 group shrink-0 overflow-hidden"><div id="image-upload-area" class="w-full h-full">${imageArea}</div></div><input type="file" id="file-upload" accept="image/*" class="hidden" onchange="handleImageUpload(event)"><input type="hidden" id="hidden-image-data" value="${card.data.image || ''}">`;
-
-                    const mainInputSection = ''; 
-                    
-                    const cityStr = (card.data.city || '').toLowerCase();
-                    const countryStr = (card.data.country || '').toLowerCase();
-                    const widgetSrc = (cityStr && countryStr) 
-                        ? `https://www.meteoblue.com/en/weather/widget/daily/${cityStr}_${countryStr}_${card.data.cityCode}?geoloc=fixed&days=5&tempunit=CELSIUS&windunit=KILOMETER_PER_HOUR&precipunit=MILLIMETER&coloured=coloured&pictoicon=1&maxtemperature=1&mintemperature=1&windspeed=0&windgust=0&winddirection=0&uv=0&humidity=0&precipitation=1&precipitationprobability=1&spot=0&pressure=0&layout=light&user_key=2e200e4a053b7496&embed_key=df30fbb9185a38e8&sig=ab39070c2f3a8b2e71c2e72eceff975fdced5b3898bd11fe572c7e8229b6e573`
-                        : '';
-
-                    const fieldsHtml = `
-                        <input type="hidden" id="input-type" value="city_header"> 
-                        <div class="grid grid-cols-2 gap-3 mt-4">
-                            <div>
-                                <label class="text-xs font-bold text-gray-400 mb-1 block">城市中文名</label>
-                                <input type="text" value="${card.data.city_zh}" readonly class="w-full p-3 bg-gray-100 rounded-xl text-sm border-none text-gray-500">
-                            </div>
-                            <div>
-                                <label class="text-xs font-bold text-gray-400 mb-1 block">城市英文名</label>
-                                <input type="text" value="${card.data.city}" readonly class="w-full p-3 bg-gray-100 rounded-xl text-sm border-none text-gray-500">
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-3 gap-3 mt-3">
-                            <div>
-                                <label class="text-xs font-bold text-gray-400 mb-1 block">ID</label>
-                                <input type="text" value="${card.data.id}" readonly class="w-full p-3 bg-gray-100 rounded-xl text-sm border-none text-gray-500 text-center">
-                            </div>
-                            <div class="col-span-1">
-                                <label class="text-xs font-bold text-gray-400 mb-1 block">城市代碼</label>
-                                <input type="text" value="${card.data.cityCode || ''}" readonly class="w-full p-3 bg-gray-100 rounded-xl text-sm border-none text-gray-500 text-center">
-                            </div>
-                             <div class="col-span-1">
-                                <label class="text-xs font-bold text-gray-400 mb-1 block">旅行日</label>
-                                <input type="text" value="${card.data.date}" readonly class="w-full p-3 bg-gray-100 rounded-xl text-sm border-none text-gray-500 text-center">
-                            </div>
-                        </div>
-                        <div class="mt-6 mb-2">
-                            <label class="text-xs font-bold text-gray-400 mb-2 block">天氣預報 Widget</label>
-                            <div class="rounded-xl overflow-hidden shadow-sm border border-gray-100 h-[380px] bg-gray-50">
-                                ${widgetSrc 
-                                    ? `<iframe src="${widgetSrc}" frameborder="0" scrolling="NO" allowtransparency="true" sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox" style="width: 100%; height: 380px"></iframe>`
-                                    : `<div class="flex items-center justify-center h-full text-gray-400 text-sm">資料不足，無法載入天氣</div>`
-                                }
-                            </div>
-                        </div>
-                    `;
-                    return { imageSection: topImageSection, mainInputSection, fieldsHtml };
+                    const widgetSrc = (card.data.city && card.data.country) ? `https://www.meteoblue.com/en/weather/widget/daily/${card.data.city.toLowerCase()}_${card.data.country.toLowerCase()}_${card.data.cityCode}?geoloc=fixed&days=5&tempunit=CELSIUS&windunit=KILOMETER_PER_HOUR&precipunit=MILLIMETER&coloured=coloured&pictoicon=1&maxtemperature=1&mintemperature=1&windspeed=0&windgust=0&winddirection=0&uv=0&humidity=0&precipitation=1&precipitationprobability=1&spot=0&pressure=0&layout=light&user_key=2e200e4a053b7496&embed_key=df30fbb9185a38e8&sig=ab39070c2f3a8b2e71c2e72eceff975fdced5b3898bd11fe572c7e8229b6e573` : '';
+                    const fieldsHtml = `<input type="hidden" id="input-type" value="city_header"><div class="grid grid-cols-2 gap-3 mt-4"><div><label class="text-xs font-bold text-gray-400 mb-1 block">城市中文名</label><input type="text" value="${card.data.city_zh}" readonly class="w-full p-3 bg-gray-100 rounded-xl text-sm border-none text-gray-500"></div><div><label class="text-xs font-bold text-gray-400 mb-1 block">城市英文名</label><input type="text" value="${card.data.city}" readonly class="w-full p-3 bg-gray-100 rounded-xl text-sm border-none text-gray-500"></div></div><div class="grid grid-cols-3 gap-3 mt-3"><div><label class="text-xs font-bold text-gray-400 mb-1 block">ID</label><input type="text" value="${card.data.id}" readonly class="w-full p-3 bg-gray-100 rounded-xl text-sm border-none text-gray-500 text-center"></div><div class="col-span-1"><label class="text-xs font-bold text-gray-400 mb-1 block">城市代碼</label><input type="text" value="${card.data.cityCode || ''}" readonly class="w-full p-3 bg-gray-100 rounded-xl text-sm border-none text-gray-500 text-center"></div><div class="col-span-1"><label class="text-xs font-bold text-gray-400 mb-1 block">旅行日</label><input type="text" value="${card.data.date}" readonly class="w-full p-3 bg-gray-100 rounded-xl text-sm border-none text-gray-500 text-center"></div></div><div class="mt-6 mb-2"><label class="text-xs font-bold text-gray-400 mb-2 block">天氣預報 Widget</label><div class="rounded-xl overflow-hidden shadow-sm border border-gray-100 h-[380px] bg-gray-50">${widgetSrc ? `<iframe src="${widgetSrc}" frameborder="0" scrolling="NO" allowtransparency="true" sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox" style="width: 100%; height: 380px"></iframe>` : `<div class="flex items-center justify-center h-full text-gray-400 text-sm">資料不足，無法載入天氣</div>`}</div></div>`;
+                    return { imageSection: topImageSection, mainInputSection: '', fieldsHtml };
                 }
 
-                // Normal Card Logic
-                // If type is transport, we hide image section completely
                 const isTransport = type === 'transport';
                 const existingImage = card.data.image;
                 const imageHeightClass = existingImage ? 'h-56' : 'h-16';
-                
-                let imageAreaContent = '';
-                if (!isTransport) {
-                    imageAreaContent = existingImage ? 
-                        `<img src="${existingImage}" class="w-full h-full object-cover block"><div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10 group"><button onclick="document.getElementById('file-upload').click()" class="text-white text-xs font-bold border border-white/50 bg-black/20 hover:bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">更換</button><button onclick="removeImage('card'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300/50 bg-red-500/40 hover:bg-red-500/60 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除</button></div>` : 
-                        `<div class="w-full h-full bg-gray-50 flex flex-col items-center justify-center text-gray-400 group-hover:bg-gray-100 transition cursor-pointer" onclick="document.getElementById('file-upload').click()"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mb-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span class="text-xs font-bold">點擊上傳封面</span></div>`;
-                }
-
+                let imageAreaContent = isTransport ? '' : (existingImage ? `<img src="${existingImage}" class="w-full h-full object-cover block"><div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10 group"><button onclick="document.getElementById('file-upload').click()" class="text-white text-xs font-bold border border-white/50 bg-black/20 hover:bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">更換</button><button onclick="removeImage('card'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300/50 bg-red-500/40 hover:bg-red-500/60 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除</button></div>` : `<div class="w-full h-full bg-gray-50 flex flex-col items-center justify-center text-gray-400 group-hover:bg-gray-100 transition cursor-pointer" onclick="document.getElementById('file-upload').click()"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mb-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span class="text-xs font-bold">點擊上傳封面</span></div>`);
                 const topImageSection = isTransport ? '' : `<div id="image-section-container" class="relative w-full ${imageHeightClass} transition-all duration-300 group shrink-0 overflow-hidden"><div id="image-upload-area" class="w-full h-full">${imageAreaContent}</div></div><input type="file" id="file-upload" accept="image/*" class="hidden" onchange="handleImageUpload(event)"><input type="hidden" id="hidden-image-data" value="${card.data.image || ''}">`;
 
                 let mainInputSection = '';
                 let fieldsHtml = '';
-
-                // Calculate DateTime string from current day and card time
-                // card.time is "HH:mm"
-                // window.appData.days[dayIndex].date is "YYYY/MM/DD"
-                // We need "YYYY-MM-DDTHH:mm" for datetime-local
-                // If editing existing card, use its time. If new, use default.
                 let defaultDate = window.appData.days[editingCardRef.dayIndex].date.replace(/\//g, '-');
-                let defaultTime = card.time || '10:00';
-                let datetimeValue = `${defaultDate}T${defaultTime}`;
+                let datetimeValue = `${defaultDate}T${card.time || '10:00'}`;
 
-                if (type === 'transport') {
-                    // Transport keeps separate Date/Time inputs or just Time? Prompt said "Except for type TRANSPORT... format changed to yyyy-mm-dd hh:mm"
-                    // Implying TRANSPORT keeps old format (just time? or separate fields?). 
-                    // Looking at previous code, Transport had specific "Departure Time" and "Arrival Time" inputs.
-                    // We will keep Transport as is (Time inputs) based on "Except for type TRANSPORT" instruction.
-                    
-                    mainInputSection = `
-                         <div class="px-6 pb-2 space-y-4 pt-6">
-                            <div class="flex space-x-3 items-end">
-                                <div class="w-5/12">
-                                    <label class="text-xs font-bold text-gray-400 mb-1">類型</label>
-                                    <select id="input-type" onchange="updateContent(this.value)" class="w-full p-3 bg-gray-50 rounded-xl font-bold text-sm border-none uppercase tracking-wider">
-                                        <option value="sightseeing" ${card.type==='sightseeing'?'selected':''}>SCENERY</option>
-                                        <option value="dining" ${card.type==='dining'?'selected':''}>DINING</option>
-                                        <option value="cafe" ${card.type==='cafe'?'selected':''}>CAFE</option>
-                                        <option value="accommodation" ${card.type==='accommodation'?'selected':''}>HOTEL</option>
-                                        <option value="transport" ${card.type==='transport'?'selected':''}>TRANSPORT</option>
-                                    </select>
-                                </div>
-                                <div class="w-7/12">
-                                    <label class="text-xs font-bold text-gray-400 mb-1">交通工具</label>
-                                    <select id="input-vehicle" class="w-full p-3 bg-gray-50 rounded-xl text-sm border-none">
-                                        <option value="火車" ${card.data.vehicle === '火車' ? 'selected' : ''}>火車</option>
-                                        <option value="客運" ${card.data.vehicle === '客運' ? 'selected' : ''}>客運</option>
-                                        <option value="飛機" ${card.data.vehicle === '飛機' ? 'selected' : ''}>飛機</option>
-                                        <option value="地鐵" ${card.data.vehicle === '地鐵' ? 'selected' : ''}>地鐵</option>
-                                    </select>
-                                </div>
-                            </div>
-                         </div>
-                    `;
-                    fieldsHtml = `
-                        <div class="space-y-2 mt-2">
-                             <div class="flex gap-2 items-end">
-                                <div class="flex-1">
-                                    <label class="block text-xs font-bold text-gray-400 mb-1">出發地</label>
-                                    <input id="input-origin" value="${card.data.origin||''}" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm">
-                                </div>
-                                <a href="javascript:void(0)" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(document.getElementById('input-origin').value), '_blank')" class="p-3 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 mb-[1px]">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
-                                </a>
-                            </div>
-                             <div class="flex items-center gap-3 bg-gray-50 p-2 rounded-xl">
-                                <span class="text-xs font-bold text-gray-500">出發時間</span>
-                                <input type="time" id="input-time" value="${card.time}" class="flex-1 p-2 bg-white rounded-lg text-sm text-center border-none font-bold">
-                            </div>
-                        </div>
-                        <div class="space-y-2 mt-4">
-                             <div class="flex gap-2 items-end">
-                                <div class="flex-1">
-                                    <label class="block text-xs font-bold text-gray-400 mb-1">目的地</label>
-                                    <input id="input-destination" value="${card.data.destination||''}" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm">
-                                </div>
-                                <a href="javascript:void(0)" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(document.getElementById('input-destination').value), '_blank')" class="p-3 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 mb-[1px]">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
-                                </a>
-                            </div>
-                             <div class="flex items-center gap-3 bg-gray-50 p-2 rounded-xl">
-                                <span class="text-xs font-bold text-gray-500">抵達時間</span>
-                                <input type="time" id="input-arrival-time" value="${card.data.arrival_time||''}" class="flex-1 p-2 bg-white rounded-lg text-sm text-center border-none font-bold">
-                            </div>
-                        </div>
-                    `;
+                if (isTransport) {
+                    mainInputSection = `<div class="px-6 pb-2 space-y-4 pt-6"><div class="flex space-x-3 items-end"><div class="w-5/12"><label class="text-xs font-bold text-gray-400 mb-1">類型</label><select id="input-type" onchange="updateContent(this.value)" class="w-full p-3 bg-gray-50 rounded-xl font-bold text-sm border-none uppercase tracking-wider"><option value="sightseeing" ${card.type==='sightseeing'?'selected':''}>SCENERY</option><option value="dining" ${card.type==='dining'?'selected':''}>DINING</option><option value="cafe" ${card.type==='cafe'?'selected':''}>CAFE</option><option value="accommodation" ${card.type==='accommodation'?'selected':''}>HOTEL</option><option value="transport" ${card.type==='transport'?'selected':''}>TRANSPORT</option></select></div><div class="w-7/12"><label class="text-xs font-bold text-gray-400 mb-1">交通工具</label><select id="input-vehicle" class="w-full p-3 bg-gray-50 rounded-xl text-sm border-none"><option value="火車" ${card.data.vehicle === '火車' ? 'selected' : ''}>火車</option><option value="客運" ${card.data.vehicle === '客運' ? 'selected' : ''}>客運</option><option value="飛機" ${card.data.vehicle === '飛機' ? 'selected' : ''}>飛機</option><option value="地鐵" ${card.data.vehicle === '地鐵' ? 'selected' : ''}>地鐵</option></select></div></div></div>`;
+                    fieldsHtml = `<div class="space-y-2 mt-2"><div class="flex gap-2 items-end"><div class="flex-1"><label class="block text-xs font-bold text-gray-400 mb-1">出發地</label><input id="input-origin" value="${card.data.origin||''}" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm"></div><a href="javascript:void(0)" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(document.getElementById('input-origin').value), '_blank')" class="p-3 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 mb-[1px]"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></a></div><div class="flex items-center gap-3 bg-gray-50 p-2 rounded-xl"><span class="text-xs font-bold text-gray-500">出發時間</span><input type="time" id="input-time" value="${card.time}" class="flex-1 p-2 bg-white rounded-lg text-sm text-center border-none font-bold"></div></div><div class="space-y-2 mt-4"><div class="flex gap-2 items-end"><div class="flex-1"><label class="block text-xs font-bold text-gray-400 mb-1">目的地</label><input id="input-destination" value="${card.data.destination||''}" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm"></div><a href="javascript:void(0)" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(document.getElementById('input-destination').value), '_blank')" class="p-3 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 mb-[1px]"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></a></div><div class="flex items-center gap-3 bg-gray-50 p-2 rounded-xl"><span class="text-xs font-bold text-gray-500">抵達時間</span><input type="time" id="input-arrival-time" value="${card.data.arrival_time||''}" class="flex-1 p-2 bg-white rounded-lg text-sm text-center border-none font-bold"></div></div><div class="mt-4"><label class="block text-xs font-bold text-gray-500">訂單連結</label><input id="input-booking-link" value="${card.data.booking_link||''}" placeholder="例如：車票、訂位連結" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1"></div>`;
                 } else {
-                    mainInputSection = `
-                        <div class="px-6 pb-2 space-y-4">
-                            <div class="flex space-x-3">
-                                <div class="w-5/12">
-                                    <label class="text-xs font-bold text-gray-400 mb-1">類型</label>
-                                    <select id="input-type" onchange="updateContent(this.value)" class="w-full p-3 bg-gray-50 rounded-xl font-bold text-sm border-none uppercase tracking-wider">
-                                        <option value="sightseeing" ${card.type==='sightseeing'?'selected':''}>SCENERY</option>
-                                        <option value="dining" ${card.type==='dining'?'selected':''}>DINING</option>
-                                        <option value="cafe" ${card.type==='cafe'?'selected':''}>CAFE</option>
-                                        <option value="accommodation" ${card.type==='accommodation'?'selected':''}>HOTEL</option>
-                                        <option value="transport" ${card.type==='transport'?'selected':''}>TRANSPORT</option>
-                                    </select>
-                                </div>
-                                <div class="w-7/12">
-                                    <label class="text-xs font-bold text-gray-400 mb-1">時間</label>
-                                    <input type="datetime-local" id="input-time" value="${datetimeValue}" min="2025-12-21T00:00" max="2026-01-04T23:59" class="w-full p-3 bg-gray-50 rounded-xl font-bold text-sm text-center border-none">
-                                </div>
-                            </div>
-                            <div>
-                                <label class="text-xs font-bold text-gray-400 mb-1">名稱</label>
-                                <input type="text" id="input-name" value="${card.name}" placeholder="地點名稱" class="w-full p-4 border-2 border-morandi-primary/20 focus:border-morandi-primary rounded-2xl font-bold text-lg bg-white">
-                            </div>
-                        </div>
-                    `;
-                    // ... (Fields for other types) ...
-                    if(type === 'sightseeing') {
-                        fieldsHtml = `
-                            <label class="block text-xs font-bold text-gray-500 mt-2">導遊故事</label>
-                            <textarea id="input-story" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1 h-24 focus:ring-2 focus:ring-morandi-primary/30">${card.data.story||''}</textarea>
-                            <label class="block text-xs font-bold text-gray-500 mt-4">票物狀態</label>
-                            <select id="input-ticket-status" onchange="toggleInput('ticket-link-wrap', this.value === '已購票')" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1">
-                                <option value="需提前購票" ${card.data.ticket_status==='需提前購票'?'selected':''}>需提前購票</option>
-                                <option value="已購票" ${card.data.ticket_status==='已購票'?'selected':''}>已購票</option>
-                                <option value="當日購票" ${card.data.ticket_status==='當日購票'?'selected':''}>當日購票</option>
-                                <option value="無需購票" ${card.data.ticket_status==='無需購票'?'selected':''}>無需購票</option>
-                            </select>
-                            <div id="ticket-link-wrap" class="${card.data.ticket_status === '已購票' ? '' : 'hidden'} mt-2 p-3 bg-morandi-green/10 rounded-xl">
-                                <label class="block text-xs font-bold text-morandi-green">購票連結</label>
-                                <input id="input-ticket-link" value="${card.data.ticket_link||''}" placeholder="請輸入網址" class="w-full p-2 bg-white border border-morandi-green/20 rounded-lg text-sm mt-1">
-                            </div>
-                        `;
-                    } else if(type === 'dining' || type === 'cafe') {
-                        fieldsHtml = `
-                            <label class="block text-xs font-bold text-gray-500 mt-2">必吃料理</label>
-                            <input id="input-must-eat" value="${card.data.must_eat||''}" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1">
-                            <label class="block text-xs font-bold text-gray-500 mt-4">訂位資訊</label>
-                            <select id="input-reservation" onchange="toggleInput('res-link-wrap', this.value === '已訂位')" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1">
-                                <option value="需提前訂位" ${card.data.reservation==='需提前訂位'?'selected':''}>需提前訂位</option>
-                                <option value="已訂位" ${card.data.reservation==='已訂位'?'selected':''}>已訂位</option>
-                                <option value="無需訂位" ${card.data.reservation==='無需訂位'?'selected':''}>無需訂位</option>
-                            </select>
-                            <div id="res-link-wrap" class="${card.data.reservation === '已訂位' ? '' : 'hidden'} mt-2 p-3 bg-morandi-accent/10 rounded-xl">
-                                <label class="block text-xs font-bold text-morandi-accent">訂位連結</label>
-                                <input id="input-link" value="${card.data.link||''}" placeholder="請輸入網址" class="w-full p-2 bg-white border border-morandi-accent/20 rounded-lg text-sm mt-1">
-                            </div>
-                        `;
-                    } else if (type === 'accommodation') {
-                        fieldsHtml = `
-                            <label class="block text-xs font-bold text-gray-500 mt-2">地址</label>
-                            <input id="input-address" value="${card.data.address||''}" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1">
-                            <label class="block text-xs font-bold text-gray-500 mt-4">預訂狀態</label>
-                            <select id="input-status" onchange="toggleInput('book-link-wrap', this.value === '已預訂')" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1">
-                                <option value="已預訂" ${card.data.status==='已預訂'?'selected':''}>已預訂</option>
-                                <option value="未預訂" ${card.data.status==='未預訂'?'selected':''}>未預訂</option>
-                            </select>
-                            <div id="book-link-wrap" class="${card.data.status === '已預訂' ? '' : 'hidden'} mt-2 p-3 bg-morandi-green/10 rounded-xl">
-                                <label class="block text-xs font-bold text-morandi-green">訂房連結</label>
-                                <input id="input-booking-link" value="${card.data.booking_link||''}" placeholder="請輸入網址" class="w-full p-2 bg-white border border-morandi-green/20 rounded-lg text-sm mt-1">
-                            </div>
-                        `;
-                    } else {
-                        fieldsHtml = `
-                            <label class="block text-xs font-bold text-gray-500 mt-2">詳情</label>
-                            <input id="input-details" value="${card.data.details||''}" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1">
-                        `;
-                    }
+                    mainInputSection = `<div class="px-6 pb-2 space-y-4"><div class="flex space-x-3"><div class="w-5/12"><label class="text-xs font-bold text-gray-400 mb-1">類型</label><select id="input-type" onchange="updateContent(this.value)" class="w-full p-3 bg-gray-50 rounded-xl font-bold text-sm border-none uppercase tracking-wider"><option value="sightseeing" ${card.type==='sightseeing'?'selected':''}>SCENERY</option><option value="dining" ${card.type==='dining'?'selected':''}>DINING</option><option value="cafe" ${card.type==='cafe'?'selected':''}>CAFE</option><option value="accommodation" ${card.type==='accommodation'?'selected':''}>HOTEL</option><option value="transport" ${card.type==='transport'?'selected':''}>TRANSPORT</option></select></div><div class="w-7/12"><label class="text-xs font-bold text-gray-400 mb-1">時間</label><input type="datetime-local" id="input-time" value="${datetimeValue}" min="2025-12-21T00:00" max="2026-01-04T23:59" class="w-full p-3 bg-gray-50 rounded-xl font-bold text-sm text-center border-none"></div></div><div><label class="text-xs font-bold text-gray-400 mb-1">名稱</label><input type="text" id="input-name" value="${card.name}" placeholder="地點名稱" class="w-full p-4 border-2 border-morandi-primary/20 focus:border-morandi-primary rounded-2xl font-bold text-lg bg-white"></div></div>`;
+                    if(type === 'sightseeing') { fieldsHtml = `<label class="block text-xs font-bold text-gray-500 mt-2">導遊故事</label><textarea id="input-story" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1 h-24 focus:ring-2 focus:ring-morandi-primary/30">${card.data.story||''}</textarea><label class="block text-xs font-bold text-gray-500 mt-4">票物狀態</label><select id="input-ticket-status" onchange="toggleInput('ticket-link-wrap', this.value === '已購票')" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1"><option value="需提前購票" ${card.data.ticket_status==='需提前購票'?'selected':''}>需提前購票</option><option value="已購票" ${card.data.ticket_status==='已購票'?'selected':''}>已購票</option><option value="當日購票" ${card.data.ticket_status==='當日購票'?'selected':''}>當日購票</option><option value="無需購票" ${card.data.ticket_status==='無需購票'?'selected':''}>無需購票</option></select><div id="ticket-link-wrap" class="${card.data.ticket_status === '已購票' ? '' : 'hidden'} mt-2 p-3 bg-morandi-green/10 rounded-xl"><label class="block text-xs font-bold text-morandi-green">購票連結</label><input id="input-ticket-link" value="${card.data.ticket_link||''}" placeholder="請輸入網址" class="w-full p-2 bg-white border border-morandi-green/20 rounded-lg text-sm mt-1"></div>`; }
+                    else if(type === 'dining' || type === 'cafe') { fieldsHtml = `<label class="block text-xs font-bold text-gray-500 mt-2">必吃料理</label><input id="input-must-eat" value="${card.data.must_eat||''}" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1"><label class="block text-xs font-bold text-gray-500 mt-4">訂位資訊</label><select id="input-reservation" onchange="toggleInput('res-link-wrap', this.value === '已訂位')" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1"><option value="需提前訂位" ${card.data.reservation==='需提前訂位'?'selected':''}>需提前訂位</option><option value="已訂位" ${card.data.reservation==='已訂位'?'selected':''}>已訂位</option><option value="無需訂位" ${card.data.reservation==='無需訂位'?'selected':''}>無需訂位</option></select><div id="res-link-wrap" class="${card.data.reservation === '已訂位' ? '' : 'hidden'} mt-2 p-3 bg-morandi-accent/10 rounded-xl"><label class="block text-xs font-bold text-morandi-accent">訂位連結</label><input id="input-link" value="${card.data.link||''}" placeholder="請輸入網址" class="w-full p-2 bg-white border border-morandi-accent/20 rounded-lg text-sm mt-1"></div>`; }
+                    else if (type === 'accommodation') { fieldsHtml = `<label class="block text-xs font-bold text-gray-500 mt-2">地址</label><input id="input-address" value="${card.data.address||''}" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1"><label class="block text-xs font-bold text-gray-500 mt-4">預訂狀態</label><select id="input-status" onchange="toggleInput('book-link-wrap', this.value === '已預訂')" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1"><option value="已預訂" ${card.data.status==='已預訂'?'selected':''}>已預訂</option><option value="未預訂" ${card.data.status==='未預訂'?'selected':''}>未預訂</option></select><div id="book-link-wrap" class="${card.data.status === '已預訂' ? '' : 'hidden'} mt-2 p-3 bg-morandi-green/10 rounded-xl"><label class="block text-xs font-bold text-morandi-green">訂房連結</label><input id="input-booking-link" value="${card.data.booking_link||''}" placeholder="請輸入網址" class="w-full p-2 bg-white border border-morandi-green/20 rounded-lg text-sm mt-1"></div>`; }
+                    else { fieldsHtml = `<label class="block text-xs font-bold text-gray-500 mt-2">詳情</label><input id="input-details" value="${card.data.details||''}" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm mt-1">`; }
                 }
-                
-                // Add Generic Note Field to ALL types
-                fieldsHtml += `
-                    <div class="mt-4 border-t border-gray-100 pt-4">
-                        <label class="block text-xs font-bold text-gray-400 mb-1">備註</label>
-                        <textarea id="input-note" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm h-20" placeholder="私人備註（不會顯示在卡片上）">${card.data.note||''}</textarea>
-                    </div>
-                `;
-                
-                return { imageSection: topImageSection, mainInputSection: mainInputSection, fieldsHtml: fieldsHtml }; 
+                fieldsHtml += `<div class="mt-4 border-t border-gray-100 pt-4"><label class="block text-xs font-bold text-gray-400 mb-1">備註</label><textarea id="input-note" class="w-full p-3 bg-gray-50 border-none rounded-xl text-sm h-20" placeholder="私人備註（不會顯示在卡片上）">${card.data.note||''}</textarea></div>`;
+                return { imageSection: topImageSection, mainInputSection, fieldsHtml }; 
             }
 
-            window.toggleInput = function(id, show) {
-                const el = document.getElementById(id);
-                if(show) el.classList.remove('hidden');
-                else el.classList.add('hidden');
-            }
-
-            const buildContent = () => {
-                const { imageSection, mainInputSection, fieldsHtml } = window.updateFormByType(card.type);
-                return `
-                    <div class="space-y-4 pt-0">
-                        ${imageSection} 
-                        ${mainInputSection}
-                        <div id="dynamic-fields" class="px-6 pb-6">${fieldsHtml}</div>
-                    </div>
-                `;
-            };
-
+            window.toggleInput = function(id, show) { const el = document.getElementById(id); if(show) el.classList.remove('hidden'); else el.classList.add('hidden'); }
+            const buildContent = () => { const { imageSection, mainInputSection, fieldsHtml } = window.updateFormByType(card.type); return `<div class="space-y-4 pt-0">${imageSection}${mainInputSection}<div id="dynamic-fields" class="px-6 pb-6">${fieldsHtml}</div></div>`; };
             window.updateContent = function(newType) {
                 const contentArea = document.getElementById('modal-content-area');
                 const currentTime = document.getElementById('input-time') ? document.getElementById('input-time').value : card.time;
-                const tempCard = { ...card, type: newType, time: currentTime, data: { ...card.data } };
                 const { imageSection, mainInputSection, fieldsHtml } = window.updateFormByType(newType);
-                 contentArea.innerHTML = `
-                    <div class="space-y-4 pt-0">
-                        ${imageSection} 
-                        ${mainInputSection}
-                        <div id="dynamic-fields" class="px-6 pb-6">${fieldsHtml}</div>
-                    </div>
-                `;
-                // Try to restore time/datetime
+                 contentArea.innerHTML = `<div class="space-y-4 pt-0">${imageSection}${mainInputSection}<div id="dynamic-fields" class="px-6 pb-6">${fieldsHtml}</div></div>`;
                 const timeInput = document.getElementById('input-time');
                 if(timeInput) {
-                    if(timeInput.type === 'datetime-local' && currentTime.indexOf('T') === -1) {
-                         // Convert time to datetime using current editing day
-                         let date = window.appData.days[editingCardRef.dayIndex].date.replace(/\//g, '-');
-                         timeInput.value = `${date}T${currentTime}`;
-                    } else if (timeInput.type === 'time' && currentTime.indexOf('T') !== -1) {
-                        // Extract time from datetime
-                         timeInput.value = currentTime.split('T')[1];
-                    } else {
-                         timeInput.value = currentTime;
-                    }
+                    if(timeInput.type === 'datetime-local' && currentTime.indexOf('T') === -1) { let date = window.appData.days[editingCardRef.dayIndex].date.replace(/\//g, '-'); timeInput.value = `${date}T${currentTime}`; }
+                    else if (timeInput.type === 'time' && currentTime.indexOf('T') !== -1) { timeInput.value = currentTime.split('T')[1]; }
+                    else { timeInput.value = currentTime; }
                 }
                 if(document.getElementById('input-type')) document.getElementById('input-type').value = newType;
             }
-
             content.innerHTML = buildContent();
         }
 
         window.saveCardEdit = function() {
-            const typeInput = document.getElementById('input-type');
-            const type = typeInput ? typeInput.value : '';
-
-            // Handle City Header Save
+            const type = document.getElementById('input-type').value;
             if (type === 'city_header') {
                 const { dayIndex } = editingCardRef;
-                const day = window.appData.days[dayIndex];
-                
-                const newImage = document.getElementById('hidden-image-data').value;
-                window.appData.days[dayIndex].image = newImage;
-                saveDataToFirestore();
-                closeModal();
-                renderDayHeader(day.city, day.city_zh); 
-                return;
+                window.appData.days[dayIndex].image = document.getElementById('hidden-image-data').value;
+                saveDataToFirestore(); closeModal(); renderDayHeader(window.appData.days[dayIndex].city, window.appData.days[dayIndex].city_zh); return;
             }
-
-            // Handle Normal Card Save
-            let cardName = '';
-            let cardTime = '';
-            let targetDayIndex = editingCardRef.dayIndex;
-            let shouldMove = false;
-
+            let cardName = '', cardTime = '', targetDayIndex = editingCardRef.dayIndex, shouldMove = false;
             if (type === 'transport') {
-                const origin = document.getElementById('input-origin').value;
-                const dest = document.getElementById('input-destination').value;
+                const origin = document.getElementById('input-origin').value, dest = document.getElementById('input-destination').value;
                 cardName = (origin && dest) ? `${origin} ➝ ${dest}` : (document.getElementById('input-name') ? document.getElementById('input-name').value : '交通行程');
-                cardTime = document.getElementById('input-time').value; // Keep HH:mm
+                cardTime = document.getElementById('input-time').value;
             } else {
                 cardName = document.getElementById('input-name').value;
-                const dateTimeVal = document.getElementById('input-time').value; // YYYY-MM-DDTHH:mm
+                const dateTimeVal = document.getElementById('input-time').value;
                 if (dateTimeVal) {
-                    const [datePart, timePart] = dateTimeVal.split('T');
-                    cardTime = timePart; // Extract HH:mm for display
-                    
-                    // Check if date changed
-                    // Ensure standard format YYYY/MM/DD
-                    const originDateStr = window.appData.days[editingCardRef.dayIndex].date; // 2025/12/21
-                    const newDateStr = datePart.replace(/-/g, '/'); // 2025-12-22 -> 2025/12/22
-                    
+                    const [datePart, timePart] = dateTimeVal.split('T'); cardTime = timePart;
+                    const originDateStr = window.appData.days[editingCardRef.dayIndex].date, newDateStr = datePart.replace(/-/g, '/');
                     if (originDateStr !== newDateStr) {
                          const newDayIdx = window.appData.days.findIndex(d => d.date === newDateStr);
-                         if (newDayIdx !== -1) {
-                             if (confirm(`您選擇的日期是 ${newDateStr}，是否要將此行程移動到該日？`)) {
-                                 shouldMove = true;
-                                 targetDayIndex = newDayIdx;
-                             }
-                         } else {
-                             alert("無法移動：找不到該日期的行程資料。");
-                         }
+                         if (newDayIdx !== -1) { if (confirm(`您選擇的日期是 ${newDateStr}，是否要將此行程移動到該日？`)) { shouldMove = true; targetDayIndex = newDayIdx; } }
+                         else { alert("無法移動：找不到該日期的行程資料。"); }
                     }
-                } else {
-                    cardTime = "00:00";
-                }
+                } else { cardTime = "00:00"; }
             }
-
-            const card = {
-                type,
-                time: cardTime,
-                name: cardName,
-                data: {
-                    image: document.getElementById('hidden-image-data') ? document.getElementById('hidden-image-data').value : ''
-                }
-            };
-            
-            // Common Note field for all types
-            card.data.note = document.getElementById('input-note') ? document.getElementById('input-note').value : '';
-
-            if (type === 'sightseeing') {
-                card.data.ticket_status = document.getElementById('input-ticket-status').value;
-                card.data.ticket_link = document.getElementById('input-ticket-link') ? document.getElementById('input-ticket-link').value : '';
-                card.data.story = document.getElementById('input-story') ? document.getElementById('input-story').value : '';
-            } else if (type === 'dining' || type === 'cafe') {
-                card.data.must_eat = document.getElementById('input-must-eat').value;
-                card.data.reservation = document.getElementById('input-reservation').value;
-                card.data.link = document.getElementById('input-link') ? document.getElementById('input-link').value : '';
-            } else if (type === 'accommodation') {
-                card.data.address = document.getElementById('input-address').value;
-                card.data.status = document.getElementById('input-status').value;
-                card.data.booking_link = document.getElementById('input-booking-link') ? document.getElementById('input-booking-link').value : '';
-            } else if (type === 'transport') {
-                 card.data.origin = document.getElementById('input-origin').value;
-                 card.data.destination = document.getElementById('input-destination').value;
-                 card.data.vehicle = document.getElementById('input-vehicle').value;
-                 card.data.arrival_time = document.getElementById('input-arrival-time').value;
-                 // Note already captured above
-                 card.data.image = ''; // Reset image for transport
-            } else {
-                card.data.details = document.getElementById('input-details') ? document.getElementById('input-details').value : '';
-            }
-            
+            const card = { type, time: cardTime, name: cardName, data: { image: document.getElementById('hidden-image-data') ? document.getElementById('hidden-image-data').value : '', note: document.getElementById('input-note') ? document.getElementById('input-note').value : '' } };
+            if (type === 'sightseeing') { card.data.ticket_status = document.getElementById('input-ticket-status').value; card.data.ticket_link = document.getElementById('input-ticket-link')?.value || ''; card.data.story = document.getElementById('input-story')?.value || ''; }
+            else if (type === 'dining' || type === 'cafe') { card.data.must_eat = document.getElementById('input-must-eat').value; card.data.reservation = document.getElementById('input-reservation').value; card.data.link = document.getElementById('input-link')?.value || ''; }
+            else if (type === 'accommodation') { card.data.address = document.getElementById('input-address').value; card.data.status = document.getElementById('input-status').value; card.data.booking_link = document.getElementById('input-booking-link')?.value || ''; }
+            else if (type === 'transport') { card.data.origin = document.getElementById('input-origin').value; card.data.destination = document.getElementById('input-destination').value; card.data.vehicle = document.getElementById('input-vehicle').value; card.data.arrival_time = document.getElementById('input-arrival-time').value; card.data.booking_link = document.getElementById('input-booking-link')?.value || ''; card.data.image = ''; }
+            else { card.data.details = document.getElementById('input-details')?.value || ''; }
             if (shouldMove) {
-                // Remove from old day
-                if (editingCardRef.cardIndex !== -1) {
-                      window.appData.days[editingCardRef.dayIndex].cards.splice(editingCardRef.cardIndex, 1);
-                }
-                // Add to new day
-                window.updateCardData(targetDayIndex, -1, card);
-                // Switch view to new day
-                changeDay(targetDayIndex);
-            } else {
-                window.updateCardData(editingCardRef.dayIndex, editingCardRef.cardIndex, card);
-                renderDayItinerary(editingCardRef.dayIndex);
-            }
-            
+                if (editingCardRef.cardIndex !== -1) { window.appData.days[editingCardRef.dayIndex].cards.splice(editingCardRef.cardIndex, 1); }
+                window.updateCardData(targetDayIndex, -1, card); changeDay(targetDayIndex);
+            } else { window.updateCardData(editingCardRef.dayIndex, editingCardRef.cardIndex, card); renderDayItinerary(editingCardRef.dayIndex); }
             closeModal();
         }
 
-        // ... (Remaining functions switchBudgetSubTab, openFilterModal, etc. same as provided)
         function closeModal() { document.getElementById('edit-modal').classList.add('hidden'); }
-        function switchBudgetSubTab(tabName) { const historyBtn = document.getElementById('subtab-history'); const balanceBtn = document.getElementById('subtab-balance'); const iconHistory = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 00-2-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>`; const iconBalance = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>`; if (tabName === 'history') { historyBtn.classList.add('active-subtab'); historyBtn.classList.remove('text-gray-400', 'border-transparent'); historyBtn.innerHTML = `${iconHistory} 花費紀錄`; balanceBtn.classList.remove('active-subtab'); balanceBtn.classList.add('text-gray-400', 'border-transparent'); balanceBtn.innerHTML = `查看結算`; document.getElementById('history-view').classList.remove('hidden'); document.getElementById('settlement-view').classList.add('hidden'); renderAccountingList(); } else { balanceBtn.classList.add('active-subtab'); balanceBtn.classList.remove('text-gray-400', 'border-transparent'); balanceBtn.innerHTML = `${iconBalance} 查看結算`; historyBtn.classList.remove('active-subtab'); historyBtn.classList.add('text-gray-400', 'border-transparent'); historyBtn.innerHTML = `花費紀錄`; document.getElementById('history-view').classList.add('hidden'); document.getElementById('settlement-view').classList.remove('hidden'); renderBalance(); } }
+        function switchBudgetSubTab(tabName) { const historyBtn = document.getElementById('subtab-history'), balanceBtn = document.getElementById('subtab-balance'); if (tabName === 'history') { historyBtn.classList.add('active-subtab'); historyBtn.classList.remove('text-gray-400'); balanceBtn.classList.remove('active-subtab'); balanceBtn.classList.add('text-gray-400'); document.getElementById('history-view').classList.remove('hidden'); document.getElementById('settlement-view').classList.add('hidden'); renderAccountingList(); } else { balanceBtn.classList.add('active-subtab'); balanceBtn.classList.remove('text-gray-400'); historyBtn.classList.remove('active-subtab'); historyBtn.classList.add('text-gray-400'); document.getElementById('history-view').classList.add('hidden'); document.getElementById('settlement-view').classList.remove('hidden'); renderBalance(); } }
         function openFilterModal() { document.getElementById('filter-modal').classList.remove('hidden'); if(filterStartDate) document.getElementById('filter-start-date').value = filterStartDate; if(filterEndDate) document.getElementById('filter-end-date').value = filterEndDate; }
-        function applyFilter() { const start = document.getElementById('filter-start-date').value; const end = document.getElementById('filter-end-date').value; if(start && end) { filterStartDate = start; filterEndDate = end; document.getElementById('filter-active-dot').classList.remove('hidden'); document.getElementById('filter-status-text').textContent = `${start.slice(5)} ~ ${end.slice(5)}`; document.getElementById('filter-status-bar').classList.remove('hidden'); } else { clearFilter(); } document.getElementById('filter-modal').classList.add('hidden'); renderAccountingList(); }
-        function clearFilter() { filterStartDate = null; filterEndDate = null; document.getElementById('filter-start-date').value = ''; document.getElementById('filter-end-date').value = ''; document.getElementById('filter-active-dot').classList.add('hidden'); document.getElementById('filter-status-bar').classList.add('hidden'); renderAccountingList(); }
-        function renderBalance() { const container = document.getElementById('balance-list'); let balances = {}; window.accountingData.entries.forEach(e => { const cur = e.currency; const amt = parseFloat(e.amount); const payers = e.payer; const parts = e.participants; if(!balances[cur]) balances[cur] = 0; if(payers === 'Felix') balances[cur] += amt; if(parts.includes('Felix')) balances[cur] -= (amt / parts.length); }); let html = ''; for(const [cur, net] of Object.entries(balances)) { if(Math.abs(net) < 1) continue; const abs = Math.abs(net).toFixed(1); if(net > 0) { html += `<div class="flex justify-between p-3 bg-morandi-accent/20 text-black rounded-xl"><span class="font-bold">${cur} ${abs}</span><span class="text-sm">Esther 需給 Felix</span></div>`; } else { html += `<div class="flex justify-between p-3 bg-morandi-indigo/20 text-black rounded-xl"><span class="font-bold">${cur} ${abs}</span><span class="text-sm">Felix 需給 Esther</span></div>`; } } container.innerHTML = html || '<div class="text-center text-gray-400 py-4">目前沒有欠款 🎉</div>'; }
+        function applyFilter() { const start = document.getElementById('filter-start-date').value, end = document.getElementById('filter-end-date').value; if(start && end) { filterStartDate = start; filterEndDate = end; document.getElementById('filter-active-dot').classList.remove('hidden'); document.getElementById('filter-status-text').textContent = `${start.slice(5)} ~ ${end.slice(5)}`; document.getElementById('filter-status-bar').classList.remove('hidden'); } else { clearFilter(); } document.getElementById('filter-modal').classList.add('hidden'); renderAccountingList(); }
+        function clearFilter() { filterStartDate = null; filterEndDate = null; document.getElementById('filter-active-dot').classList.add('hidden'); document.getElementById('filter-status-bar').classList.add('hidden'); renderAccountingList(); }
+        function renderBalance() { const container = document.getElementById('balance-list'); let balances = {}; window.accountingData.entries.forEach(e => { const cur = e.currency, amt = parseFloat(e.amount), payers = e.payer, parts = e.participants; if(!balances[cur]) balances[cur] = 0; if(payers === 'Felix') balances[cur] += amt; if(parts.includes('Felix')) balances[cur] -= (amt / parts.length); }); let html = ''; for(const [cur, net] of Object.entries(balances)) { if(Math.abs(net) < 1) continue; const abs = Math.abs(net).toFixed(1); if(net > 0) { html += `<div class="flex justify-between p-3 bg-morandi-accent/20 text-black rounded-xl"><span class="font-bold">${cur} ${abs}</span><span class="text-sm">Esther 需給 Felix</span></div>`; } else { html += `<div class="flex justify-between p-3 bg-morandi-indigo/20 text-black rounded-xl"><span class="font-bold">${cur} ${abs}</span><span class="text-sm">Felix 需給 Esther</span></div>`; } } container.innerHTML = html || '<div class="text-center text-gray-400 py-4">目前沒有欠款 🎉</div>'; }
         window.openAddExpenseModal = function() { editingExpenseId = null; document.getElementById('accounting-form').reset(); document.getElementById('expense-date').valueAsDate = new Date(); document.getElementById('form-title').textContent = '新增支出'; document.getElementById('submit-btn').textContent = '新增紀錄'; document.getElementById('delete-expense-btn').classList.add('hidden'); document.getElementById('expense-modal').classList.remove('hidden'); }
         window.closeExpenseModal = function() { document.getElementById('expense-modal').classList.add('hidden'); }
         window.editExpense = function(id) { const entry = window.accountingData.entries.find(e => e.id === id); if(!entry) return; editingExpenseId = id; document.getElementById('expense-date').value = entry.date; document.getElementById('expense-currency').value = entry.currency; document.getElementById('expense-desc').value = entry.desc; document.getElementById('expense-amount').value = entry.amount; document.getElementById('expense-category').value = entry.category; document.querySelector(`input[name="payer"][value="${entry.payer}"]`).checked = true; document.querySelectorAll(`input[name="participant"]`).forEach(c => { const parts = entry.participants || []; c.checked = parts.includes(c.value) }); document.getElementById('form-title').textContent = '編輯支出'; document.getElementById('submit-btn').textContent = '更新紀錄'; document.getElementById('delete-expense-btn').classList.remove('hidden'); document.getElementById('expense-modal').classList.remove('hidden'); }
@@ -1584,439 +1135,104 @@
         document.getElementById('accounting-form').addEventListener('submit', (e) => { e.preventDefault(); const entry = { id: editingExpenseId || Date.now().toString(), date: document.getElementById('expense-date').value, currency: document.getElementById('expense-currency').value, desc: document.getElementById('expense-desc').value, amount: parseFloat(document.getElementById('expense-amount').value), category: document.getElementById('expense-category').value, payer: document.querySelector('input[name="payer"]:checked').value, participants: Array.from(document.querySelectorAll('input[name="participant"]:checked')).map(c => c.value), timestamp: Date.now() }; if(editingExpenseId) { const idx = window.accountingData.entries.findIndex(x => x.id === editingExpenseId); if(idx !== -1) window.accountingData.entries[idx] = entry; } else { window.accountingData.entries.push(entry); } saveAccountingToFirestore(); renderAccountingList(); closeExpenseModal(); });
         function renderAccountingList() { const container = document.getElementById('expense-list'); let entries = window.accountingData.entries.sort((a,b) => b.date.localeCompare(a.date)); if (filterStartDate && filterEndDate) { entries = entries.filter(e => e.date >= filterStartDate && e.date <= filterEndDate); } if(entries.length === 0) { container.innerHTML = '<div class="text-center text-gray-400 py-10">沒有相關紀錄</div>'; return; } container.innerHTML = entries.map(e => ` <div onclick="editExpense('${e.id}')" class="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-transparent hover:border-morandi-primary cursor-pointer transition"> <div class="flex items-center space-x-4"> <div class="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-md ${e.payer==='Felix'?'bg-morandi-indigo':'bg-morandi-accent'}">${e.payer[0]}</div> <div> <div class="font-bold text-morandi-dark text-base">${e.desc}</div> <div class="text-xs text-gray-400 mt-0.5">${e.date} • ${e.category}</div> </div> </div> <div class="text-right"> <div class="font-bold text-morandi-dark text-lg">${e.currency} ${e.amount}</div> <div class="text-[10px] text-gray-400">for ${e.participants.join(', ')}</div> </div> </div> `).join(''); }
         
-        // --- Todo List Logic ---
         function switchTodoSubTab(tabName) { 
-            currentTodoTab = tabName; 
-            const todoBtn = document.getElementById('subtab-todo-list'); 
-            const shoppingBtn = document.getElementById('subtab-shopping-list'); 
-            const mustEatBtn = document.getElementById('subtab-must-eat-list');
-            
-            // Updated Icons (Fixed broken todo icon)
-            const iconTodo = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 00-2-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>`;
-            const iconShopping = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>`;
-            const iconCutlery = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg>`;
-
-            // Reset all tabs to default state (Text only)
-            todoBtn.className = 'tab-btn pb-2 flex items-center gap-2 text-gray-400 border-transparent';
-            todoBtn.innerHTML = '待辦事項';
-            
-            shoppingBtn.className = 'tab-btn pb-2 flex items-center gap-2 text-gray-400 border-transparent';
-            shoppingBtn.innerHTML = '購物清單';
-            
-            mustEatBtn.className = 'tab-btn pb-2 flex items-center gap-2 text-gray-400 border-transparent';
-            mustEatBtn.innerHTML = '想吃清單';
-
-            // Set Active Tab (Add Icon)
+            currentTodoTab = tabName; const todoBtn = document.getElementById('subtab-todo-list'), shoppingBtn = document.getElementById('subtab-shopping-list'), mustEatBtn = document.getElementById('subtab-must-eat-list');
+            const iconTodo = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 00-2-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>`, iconShopping = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>`, iconCutlery = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg>`;
+            todoBtn.className = 'tab-btn pb-2 flex items-center gap-2 text-gray-400 border-transparent'; todoBtn.innerHTML = '待辦事項'; shoppingBtn.className = 'tab-btn pb-2 flex items-center gap-2 text-gray-400 border-transparent'; shoppingBtn.innerHTML = '購物清單'; mustEatBtn.className = 'tab-btn pb-2 flex items-center gap-2 text-gray-400 border-transparent'; mustEatBtn.innerHTML = '想吃清單';
             const activeClass = 'tab-btn active-subtab pb-2 flex items-center gap-2';
-            if (tabName === 'todo') { 
-                todoBtn.className = activeClass; 
-                todoBtn.innerHTML = `${iconTodo} 待辦事項`;
-            } else if (tabName === 'shopping') { 
-                shoppingBtn.className = activeClass; 
-                shoppingBtn.innerHTML = `${iconShopping} 購物清單`;
-            } else if (tabName === 'must_eat') { 
-                mustEatBtn.className = activeClass; 
-                mustEatBtn.innerHTML = `${iconCutlery} 想吃清單`;
-            }
-            
+            if (tabName === 'todo') { todoBtn.className = activeClass; todoBtn.innerHTML = `${iconTodo} 待辦事項`; } else if (tabName === 'shopping') { shoppingBtn.className = activeClass; shoppingBtn.innerHTML = `${iconShopping} 購物清單`; } else if (tabName === 'must_eat') { mustEatBtn.className = activeClass; mustEatBtn.innerHTML = `${iconCutlery} 想吃清單`; }
             renderTodoList(); 
         }
 
-        // --- Toggle Category Select Visibility ---
-        window.toggleTodoCategory = function(value) {
-            const container = document.getElementById('todo-category-container');
-            if (value === 'must_eat') {
-                container.classList.remove('hidden');
-            } else {
-                container.classList.add('hidden');
-            }
-        }
-
+        window.toggleTodoCategory = function(value) { const container = document.getElementById('todo-category-container'); if (value === 'must_eat') container.classList.remove('hidden'); else container.classList.add('hidden'); }
         window.openAddTodoModal = function() { 
-            editingTodoId = null; 
-            document.getElementById('todo-form').reset(); 
-            document.getElementById('todo-hidden-image-data').value = ''; 
+            editingTodoId = null; document.getElementById('todo-form').reset(); document.getElementById('todo-hidden-image-data').value = ''; 
             document.getElementById('todo-image-upload-area').innerHTML = `<div class="w-full h-full bg-gray-50 flex flex-col items-center justify-center text-gray-400 group-hover:bg-gray-100 transition cursor-pointer rounded-lg border-2 border-dashed border-gray-200" onclick="document.getElementById('todo-file-upload').click()"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mb-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span class="text-xs font-bold">上傳圖片 (選填)</span></div>`; 
-            document.getElementById('todo-form-title').textContent = '新增項目'; 
-            document.getElementById('submit-todo-btn').textContent = '新增項目'; 
-            document.getElementById('delete-todo-btn').classList.add('hidden'); 
-            document.getElementById('join-itinerary-btn').classList.add('hidden'); // Hide join button for new items
-            document.getElementById('todo-item-modal').classList.remove('hidden'); 
-            
-            // Auto-select category based on current tab
-            const typeSelect = document.getElementById('todo-type');
-            if (typeSelect) {
-                typeSelect.value = currentTodoTab;
-            }
-            toggleTodoCategory(currentTodoTab);
+            document.getElementById('todo-form-title').textContent = '新增項目'; document.getElementById('submit-todo-btn').textContent = '新增項目'; document.getElementById('delete-todo-btn').classList.add('hidden'); document.getElementById('join-itinerary-btn').classList.add('hidden'); document.getElementById('todo-item-modal').classList.remove('hidden'); 
+            const typeSelect = document.getElementById('todo-type'); if (typeSelect) typeSelect.value = currentTodoTab; toggleTodoCategory(currentTodoTab);
         }
         window.closeTodoModal = function() { document.getElementById('todo-item-modal').classList.add('hidden'); }
-        
         document.getElementById('todo-form').addEventListener('submit', (e) => { 
-            e.preventDefault(); 
-            
-            const type = document.getElementById('todo-type').value;
-            let noteText = document.getElementById('todo-note').value;
-            let category = '';
-            
-            let mustEatVal = '';
-            let locationVal = '';
-
-            // Handle must_eat fields
-            if(type === 'must_eat') {
-                category = document.getElementById('todo-category').value;
-                mustEatVal = document.getElementById('todo-must-eat').value;
-                locationVal = document.getElementById('todo-location').value;
-            }
-
-            const newItem = { 
-                id: editingTodoId || Date.now().toString(), 
-                name: document.getElementById('todo-name').value, 
-                type: type, 
-                category: category, 
-                note: noteText, 
-                must_eat: mustEatVal, 
-                location: locationVal, 
-                image: document.getElementById('todo-hidden-image-data').value,
-                done: false, 
-                timestamp: Date.now() 
-            }; 
-            
-            if (editingTodoId) { 
-                const existingItem = window.todoData.items.find(x => x.id === editingTodoId); 
-                if (existingItem) newItem.done = existingItem.done; 
-                const idx = window.todoData.items.findIndex(x => x.id === editingTodoId); 
-                if (idx !== -1) window.todoData.items[idx] = newItem; 
-            } else { 
-                window.todoData.items.push(newItem); 
-            } 
-            saveTodoToFirestore(); 
-            renderTodoList(); 
-            closeTodoModal(); 
+            e.preventDefault(); const type = document.getElementById('todo-type').value; let noteText = document.getElementById('todo-note').value, category = '', mustEatVal = '', locationVal = '';
+            if(type === 'must_eat') { category = document.getElementById('todo-category').value; mustEatVal = document.getElementById('todo-must-eat').value; locationVal = document.getElementById('todo-location').value; }
+            const newItem = { id: editingTodoId || Date.now().toString(), name: document.getElementById('todo-name').value, type, category, note: noteText, must_eat: mustEatVal, location: locationVal, image: document.getElementById('todo-hidden-image-data').value, done: false, timestamp: Date.now() }; 
+            if (editingTodoId) { const idx = window.todoData.items.findIndex(x => x.id === editingTodoId); if (idx !== -1) { newItem.done = window.todoData.items[idx].done; window.todoData.items[idx] = newItem; } } else { window.todoData.items.push(newItem); }
+            saveTodoToFirestore(); renderTodoList(); closeTodoModal(); 
         });
 
         window.editTodo = function(id) { 
-            const item = window.todoData.items.find(x => x.id === id); 
-            if (!item) return; 
-            editingTodoId = id; 
-            document.getElementById('todo-name').value = item.name; 
-            document.getElementById('todo-type').value = item.type; 
-            
-            // Handle Category display for editing
-            toggleTodoCategory(item.type);
-            
-            // Show Join Itinerary Button ONLY for must_eat items
+            const item = window.todoData.items.find(x => x.id === id); if (!item) return; 
+            editingTodoId = id; document.getElementById('todo-name').value = item.name; document.getElementById('todo-type').value = item.type; toggleTodoCategory(item.type);
             const joinBtn = document.getElementById('join-itinerary-btn');
-            if(item.type === 'must_eat') {
-                joinBtn.classList.remove('hidden');
-                
-                document.getElementById('todo-must-eat').value = item.must_eat || '';
-                document.getElementById('todo-location').value = item.location || '';
-                
-                let catVal = item.category;
-                let noteVal = item.note || '';
-                
-                if (!catVal) {
-                    if(noteVal.startsWith('[CAFE]')) { catVal = 'CAFE'; noteVal = noteVal.replace('[CAFE] ', '').replace('[CAFE]', ''); }
-                    else if(noteVal.startsWith('[DINING]')) { catVal = 'DINING'; noteVal = noteVal.replace('[DINING] ', '').replace('[DINING]', ''); }
-                }
-                
-                if(catVal) document.getElementById('todo-category').value = catVal;
-                document.getElementById('todo-note').value = noteVal;
-            } else {
-                joinBtn.classList.add('hidden');
-                document.getElementById('todo-note').value = item.note || ''; 
-            }
-
-            const existingImage = item.image; 
-            document.getElementById('todo-hidden-image-data').value = existingImage || ''; 
+            if(item.type === 'must_eat') { joinBtn.classList.remove('hidden'); document.getElementById('todo-must-eat').value = item.must_eat || ''; document.getElementById('todo-location').value = item.location || ''; document.getElementById('todo-category').value = item.category || 'DINING'; document.getElementById('todo-note').value = item.note || ''; }
+            else { joinBtn.classList.add('hidden'); document.getElementById('todo-note').value = item.note || ''; }
+            document.getElementById('todo-hidden-image-data').value = item.image || ''; 
             const previewContainer = document.getElementById('todo-image-upload-area'); 
-            // Updated Image Upload UI for Todo: Side-by-side buttons on hover
-            if(existingImage) { 
-                previewContainer.innerHTML = `
-                    <img src="${existingImage}" class="w-full h-full object-contain block rounded-lg bg-gray-50">
-                    <div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10 group">
-                        <button onclick="document.getElementById('todo-file-upload').click()" class="text-white text-xs font-bold border border-white/50 bg-black/20 hover:bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">
-                            更換
-                        </button>
-                        <button onclick="removeImage('todo'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300/50 bg-red-500/40 hover:bg-red-500/60 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除
-                        </button>
-                    </div>`; 
-            } else { 
-                previewContainer.innerHTML = `<div class="w-full h-full bg-gray-50 flex flex-col items-center justify-center text-gray-400 group-hover:bg-gray-100 transition cursor-pointer rounded-lg border-2 border-dashed border-gray-200" onclick="document.getElementById('todo-file-upload').click()"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mb-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span class="text-xs font-bold">上傳圖片 (選填)</span></div>`; 
-            } 
+            if(item.image) previewContainer.innerHTML = `<img src="${item.image}" class="w-full h-full object-contain block rounded-lg bg-gray-50"><div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 z-10 group"><button onclick="document.getElementById('todo-file-upload').click()" class="text-white text-xs font-bold border border-white/50 bg-black/20 hover:bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1">更換</button><button onclick="removeImage('todo'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300/50 bg-red-500/40 hover:bg-red-500/60 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除</button></div>`; 
+            else previewContainer.innerHTML = `<div class="w-full h-full bg-gray-50 flex flex-col items-center justify-center text-gray-400 group-hover:bg-gray-100 transition cursor-pointer rounded-lg border-2 border-dashed border-gray-200" onclick="document.getElementById('todo-file-upload').click()"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mb-1 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span class="text-xs font-bold">上傳圖片 (選填)</span></div>`; 
             document.getElementById('todo-form-title').textContent = '編輯項目'; document.getElementById('submit-todo-btn').textContent = '更新項目'; document.getElementById('delete-todo-btn').classList.remove('hidden'); document.getElementById('todo-item-modal').classList.remove('hidden'); 
         }
         
-        // New function to open Sync Modal from Edit Modal
-        window.openSyncFromEdit = function() {
-            if(!editingTodoId) return;
-            // Close edit modal
-            document.getElementById('todo-item-modal').classList.add('hidden');
-            // Trigger sync flow
-            // Need to manually set up pendingTodoId and call toggle logic or mimic it
-            // Since toggleTodoStatus logic is bound to checkbox click, let's reuse a shared function
-            // to prepare sync modal
-            prepareSyncModal(editingTodoId);
-        }
-        
+        window.openSyncFromEdit = function() { if(!editingTodoId) return; document.getElementById('todo-item-modal').classList.add('hidden'); prepareSyncModal(editingTodoId); }
         window.deleteCurrentTodo = function() { if (!editingTodoId) return; if (!confirm('確定要刪除此項目嗎？')) return; const index = window.todoData.items.findIndex(x => x.id === editingTodoId); if (index !== -1) { window.todoData.items.splice(index, 1); saveTodoToFirestore(); renderTodoList(); closeTodoModal(); } }
+        window.toggleTodoStatus = function(id) { const item = window.todoData.items.find(x => x.id === id); if (!item) return; if (item.type === 'must_eat' && !item.done) prepareSyncModal(id); else { item.done = !item.done; saveTodoToFirestore(); renderTodoList(); } }
         
-        // --- Updated Toggle Status Logic for Sync ---
-        window.toggleTodoStatus = function(id) { 
-            const item = window.todoData.items.find(x => x.id === id); 
-            if (!item) return; 
-            
-            // If item is 'must_eat' and currently NOT done (meaning user is checking it off)
-            if (item.type === 'must_eat' && !item.done) {
-                prepareSyncModal(id);
-            } else {
-                // Normal toggle for other types or unchecking
-                item.done = !item.done; 
-                saveTodoToFirestore(); 
-                renderTodoList(); 
-            }
-        }
-        
-        // Shared function to prepare and open Sync Modal
         function prepareSyncModal(id) {
-            const item = window.todoData.items.find(x => x.id === id);
-            if(!item) return;
-            
-            pendingTodoId = id;
-            // Pre-fill Modal
-            document.getElementById('sync-name').value = item.name;
-            document.getElementById('sync-must-eat').value = item.must_eat || '';
-            document.getElementById('sync-todo-note').value = item.note || '';
-            document.getElementById('sync-todo-image').value = item.image || '';
-            
-            // Map Category to Type (DINING/CAFE lowercase)
-            const cat = (item.category || '').toLowerCase();
-            if(cat === 'dining' || cat === 'cafe') {
-                document.getElementById('sync-type').value = cat;
-            } else {
-                document.getElementById('sync-type').value = 'dining'; // default
-            }
-            
-            // Show Step 1
-            document.getElementById('step-1-confirm').classList.remove('hidden');
-            document.getElementById('step-2-form').classList.add('hidden');
-            document.getElementById('add-to-itinerary-modal').classList.remove('hidden');
+            const item = window.todoData.items.find(x => x.id === id); if(!item) return;
+            pendingTodoId = id; document.getElementById('sync-name').value = item.name; document.getElementById('sync-must-eat').value = item.must_eat || ''; document.getElementById('sync-todo-note').value = item.note || ''; document.getElementById('sync-todo-image').value = item.image || '';
+            const cat = (item.category || '').toLowerCase(); document.getElementById('sync-type').value = (cat === 'dining' || cat === 'cafe') ? cat : 'dining';
+            document.getElementById('step-1-confirm').classList.remove('hidden'); document.getElementById('step-2-form').classList.add('hidden'); document.getElementById('add-to-itinerary-modal').classList.remove('hidden');
         }
         
         window.confirmAddToItinerary = function(choice) {
-            if (choice === 'cancel') {
-                document.getElementById('add-to-itinerary-modal').classList.add('hidden');
-                // Ensure UI reflects current state (undone)
-                renderTodoList(); 
-                return;
-            }
-            
-            if (choice === false) {
-                // No, Just mark as done
-                const item = window.todoData.items.find(x => x.id === pendingTodoId); 
-                if(item) {
-                    item.done = true;
-                    saveTodoToFirestore();
-                    renderTodoList();
-                }
-                document.getElementById('add-to-itinerary-modal').classList.add('hidden');
-            } else {
-                // Yes, Show Form
-                document.getElementById('step-1-confirm').classList.add('hidden');
-                document.getElementById('step-2-form').classList.remove('hidden');
-            }
+            if (choice === 'cancel') { document.getElementById('add-to-itinerary-modal').classList.add('hidden'); renderTodoList(); return; }
+            if (choice === false) { const item = window.todoData.items.find(x => x.id === pendingTodoId); if(item) { item.done = true; saveTodoToFirestore(); renderTodoList(); } document.getElementById('add-to-itinerary-modal').classList.add('hidden'); }
+            else { document.getElementById('step-1-confirm').classList.add('hidden'); document.getElementById('step-2-form').classList.remove('hidden'); }
         }
         
         window.submitAddToItinerary = function() {
-            const dateStr = document.getElementById('sync-date').value; // yyyy-mm-dd
-            const timeStr = document.getElementById('sync-time').value; // HH:mm
-            
-            if (!dateStr || !timeStr) {
-                alert('請選擇日期與時間以加入行程表');
-                return;
-            }
-            
-            // Format date to match itinerary (yyyy/mm/dd)
-            const formattedDate = dateStr.replace(/-/g, '/');
-            
-            // Find Target Day
-            const dayIndex = window.appData.days.findIndex(d => d.date === formattedDate);
-            
-            if (dayIndex === -1) {
-                alert('找不到對應日期的行程表，請確認日期是否在旅程範圍內 (2025/12/21 - 2026/01/04)');
-                return;
-            }
-            
-            // Create Card
-            const newCard = {
-                type: document.getElementById('sync-type').value, // dining or cafe
-                name: document.getElementById('sync-name').value,
-                time: timeStr,
-                data: {
-                    must_eat: document.getElementById('sync-must-eat').value,
-                    note: document.getElementById('sync-todo-note').value, // Include note from form
-                    image: document.getElementById('sync-todo-image').value,
-                    reservation: '需提前訂位', // Default safe value
-                    link: ''
-                }
-            };
-            
-            // Add to Itinerary
-            window.appData.days[dayIndex].cards.push(newCard);
-            window.appData.days[dayIndex].cards.sort((a,b) => a.time.localeCompare(b.time));
-            
-            // Mark Todo as Done
-            const item = window.todoData.items.find(x => x.id === pendingTodoId); 
-            if(item) item.done = true;
-            
-            // Save Both
-            saveDataToFirestore();
-            saveTodoToFirestore();
-            
-            // Refresh UI
-            renderTodoList();
-            renderDayItinerary(currentDayIndex); // Refresh itinerary view just in case
-            
-            document.getElementById('add-to-itinerary-modal').classList.add('hidden');
-            alert('已成功加入行程！');
+            const dateStr = document.getElementById('sync-date').value, timeStr = document.getElementById('sync-time').value;
+            if (!dateStr || !timeStr) { alert('請選擇日期與時間以加入行程表'); return; }
+            const dayIndex = window.appData.days.findIndex(d => d.date === dateStr.replace(/-/g, '/'));
+            if (dayIndex === -1) { alert('找不到對應日期的行程表，請確認日期是否在旅程範圍內 (2025/12/21 - 2026/01/04)'); return; }
+            const newCard = { type: document.getElementById('sync-type').value, name: document.getElementById('sync-name').value, time: timeStr, data: { must_eat: document.getElementById('sync-must-eat').value, note: document.getElementById('sync-todo-note').value, image: document.getElementById('sync-todo-image').value, reservation: '需提前訂位', link: '' } };
+            window.appData.days[dayIndex].cards.push(newCard); window.appData.days[dayIndex].cards.sort((a,b) => a.time.localeCompare(b.time));
+            const item = window.todoData.items.find(x => x.id === pendingTodoId); if(item) item.done = true;
+            saveDataToFirestore(); saveTodoToFirestore(); renderTodoList(); renderDayItinerary(currentDayIndex); document.getElementById('add-to-itinerary-modal').classList.add('hidden'); alert('已成功加入行程！');
         }
         
         function renderTodoList() { 
-            const container = document.getElementById('todo-list-container'); 
-            
-            // Dynamic Grid Layout for Shopping List
-            if (currentTodoTab === 'shopping') {
-                container.className = 'grid grid-cols-2 gap-3 pb-24';
-            } else {
-                container.className = 'space-y-3 pb-24';
-            }
-
-            const filterStatus = document.getElementById('todo-filter').value; 
-            let items = window.todoData.items.filter(item => item.type === currentTodoTab); 
-            if (filterStatus === 'incomplete') { items = items.filter(item => !item.done); } 
-            else if (filterStatus === 'completed') { items = items.filter(item => item.done); } 
+            const container = document.getElementById('todo-list-container'); container.className = (currentTodoTab === 'shopping') ? 'grid grid-cols-2 gap-3 pb-24' : 'space-y-3 pb-24';
+            const filterStatus = document.getElementById('todo-filter').value; let items = window.todoData.items.filter(item => item.type === currentTodoTab); 
+            if (filterStatus === 'incomplete') items = items.filter(item => !item.done); else if (filterStatus === 'completed') items = items.filter(item => item.done); 
             items.sort((a, b) => { if (a.done === b.done) return b.timestamp - a.timestamp; return a.done ? 1 : -1; }); 
-            
-            if (items.length === 0) { 
-                container.innerHTML = '<div class="col-span-2 text-center text-gray-400 py-10">目前沒有項目 🎉</div>'; 
-                return; 
-            } 
-            
+            if (items.length === 0) { container.innerHTML = '<div class="col-span-2 text-center text-gray-400 py-10">目前沒有項目 🎉</div>'; return; } 
             container.innerHTML = items.map(item => {
-                // Shopping List Specific Layout
-                if (item.type === 'shopping') {
-                    return `
-                    <div class="relative bg-white rounded-2xl shadow-sm border border-transparent hover:border-morandi-primary transition group overflow-hidden flex flex-col cursor-pointer" onclick="editTodo('${item.id}')">
-                        <!-- Checkbox (Absolute Top Right of the Card) -->
-                        <div onclick="toggleTodoStatus('${item.id}'); event.stopPropagation();" class="absolute top-2 right-2 z-20 cursor-pointer p-1 bg-white/90 rounded-full backdrop-blur-sm shadow-sm hover:scale-110 transition">
-                             ${item.done
-                                ? `<div class="w-5 h-5 rounded-full bg-morandi-green text-white flex items-center justify-center shadow-sm"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg></div>`
-                                : `<div class="w-5 h-5 rounded-full border-2 border-gray-300 group-hover:border-morandi-primary bg-white"></div>`
-                             }
-                        </div>
-
-                        <!-- Image Section (Shopping) - With Padding to create a frame effect -->
-                        <div class="p-2 pb-0">
-                            <div class="aspect-square w-full bg-gray-50 rounded-xl overflow-hidden relative border border-gray-100">
-                                ${item.image 
-                                    ? `<img src="${item.image}" class="w-full h-full object-cover">`
-                                    : `<div class="w-full h-full flex items-center justify-center text-gray-300"><svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></div>`
-                                }
-                            </div>
-                        </div>
-
-                        <!-- Content Section -->
-                        <div class="px-3 py-3 flex-1 flex flex-col">
-                             <div class="font-bold text-morandi-dark text-sm leading-tight line-clamp-2 ${item.done ? 'line-through text-gray-400' : ''}">${item.name}</div>
-                             ${item.note ? `<div class="text-[10px] text-gray-400 mt-1 line-clamp-1">${item.note}</div>` : ''}
-                        </div>
-                    </div>
-                    `;
-                }
-
-                // Determine Badge Style
-                let badge = '';
-                if(item.type === 'must_eat') {
-                    // Try to get category from field or legacy note
-                    let cat = item.category;
-                    if (!cat && item.note) {
-                        if(item.note.startsWith('[CAFE]')) cat = 'CAFE';
-                        else if(item.note.startsWith('[DINING]')) cat = 'DINING';
-                    }
-                    
-                    if (cat === 'CAFE') {
-                        badge = `<span class="bg-morandi-orange/10 text-morandi-orange border border-morandi-orange px-2 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase whitespace-nowrap ml-2">CAFE</span>`;
-                    } else if (cat === 'DINING') {
-                        badge = `<span class="bg-morandi-blue/10 text-morandi-blue border border-morandi-blue px-2 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase whitespace-nowrap ml-2">DINING</span>`;
-                    }
-                }
-
-                // Clean Note for Display (Remove legacy tag if present)
-                let displayNote = item.note || '';
-                if (displayNote.startsWith('[CAFE] ')) displayNote = displayNote.replace('[CAFE] ', '');
-                else if (displayNote.startsWith('[DINING] ')) displayNote = displayNote.replace('[DINING] ', '');
-
-                // Must Eat Title Format logic
-                let displayName = item.name;
-                if (item.type === 'must_eat' && item.location) {
-                    displayName = `<span class="text-black font-black mr-1">${item.location}</span> <span class="text-gray-300 mx-1">|</span> ${item.name}`;
-                }
-
-                return ` 
-                <div class="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-transparent hover:border-morandi-primary transition group"> 
-                    <div class="flex items-center flex-1 overflow-hidden">
-                        <div onclick="toggleTodoStatus('${item.id}')" class="cursor-pointer mr-4 flex-shrink-0"> 
-                            ${item.done ? `<div class="w-6 h-6 rounded-full bg-morandi-green text-white flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg></div>` : `<div class="w-6 h-6 rounded-full border-2 border-gray-300 group-hover:border-morandi-primary"></div>` } 
-                        </div> 
-                        <div onclick="editTodo('${item.id}')" class="cursor-pointer flex-1 min-w-0"> 
-                            <div class="font-bold text-morandi-dark text-base truncate ${item.done ? 'line-through text-gray-400' : ''}">${displayName}</div> 
-                            ${item.must_eat ? `<div class="text-xs text-morandi-orange font-bold mt-1 truncate">必吃：${item.must_eat}</div>` : ''}
-                            ${(item.type !== 'must_eat' && item.location) ? `<div class="text-xs text-morandi-blue font-bold mt-0.5 truncate">📍 ${item.location}</div>` : ''}
-                            ${displayNote ? `<div class="text-xs text-gray-400 mt-0.5 truncate">${displayNote}</div>` : ''} 
-                        </div>
-                    </div>
-                    ${badge}
-                </div> 
-                `;
+                if (item.type === 'shopping') return `<div class="relative bg-white rounded-2xl shadow-sm border border-transparent hover:border-morandi-primary transition group overflow-hidden flex flex-col cursor-pointer" onclick="editTodo('${item.id}')"><div onclick="toggleTodoStatus('${item.id}'); event.stopPropagation();" class="absolute top-2 right-2 z-20 cursor-pointer p-1 bg-white/90 rounded-full backdrop-blur-sm shadow-sm hover:scale-110 transition">${item.done ? `<div class="w-5 h-5 rounded-full bg-morandi-green text-white flex items-center justify-center shadow-sm"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg></div>` : `<div class="w-5 h-5 rounded-full border-2 border-gray-300 group-hover:border-morandi-primary bg-white"></div>`}</div><div class="p-2 pb-0"><div class="aspect-square w-full bg-gray-50 rounded-xl overflow-hidden relative border border-gray-100">${item.image ? `<img src="${item.image}" class="w-full h-full object-cover">` : `<div class="w-full h-full flex items-center justify-center text-gray-300"><svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></div>`}</div></div><div class="px-3 py-3 flex-1 flex flex-col"><div class="font-bold text-morandi-dark text-sm leading-tight line-clamp-2 ${item.done ? 'line-through text-gray-400' : ''}">${item.name}</div>${item.note ? `<div class="text-[10px] text-gray-400 mt-1 line-clamp-1">${item.note}</div>` : ''}</div></div>`;
+                let badge = ''; if(item.type === 'must_eat') badge = (item.category === 'CAFE' || (item.note && item.note.startsWith('[CAFE]'))) ? `<span class="bg-morandi-orange/10 text-morandi-orange border border-morandi-orange px-2 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase whitespace-nowrap ml-2">CAFE</span>` : `<span class="bg-morandi-blue/10 text-morandi-blue border border-morandi-blue px-2 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase whitespace-nowrap ml-2">DINING</span>`;
+                let displayNote = item.note || ''; if (displayNote.startsWith('[CAFE] ')) displayNote = displayNote.replace('[CAFE] ', ''); else if (displayNote.startsWith('[DINING] ')) displayNote = displayNote.replace('[DINING] ', '');
+                let displayName = (item.type === 'must_eat' && item.location) ? `<span class="text-black font-black mr-1">${item.location}</span> <span class="text-gray-300 mx-1">|</span> ${item.name}` : item.name;
+                return `<div class="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-transparent hover:border-morandi-primary transition group"><div class="flex items-center flex-1 overflow-hidden"><div onclick="toggleTodoStatus('${item.id}')" class="cursor-pointer mr-4 flex-shrink-0">${item.done ? `<div class="w-6 h-6 rounded-full bg-morandi-green text-white flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg></div>` : `<div class="w-6 h-6 rounded-full border-2 border-gray-300 group-hover:border-morandi-primary"></div>`}</div><div onclick="editTodo('${item.id}')" class="cursor-pointer flex-1 min-w-0"><div class="font-bold text-morandi-dark text-base truncate ${item.done ? 'line-through text-gray-400' : ''}">${displayName}</div>${item.must_eat ? `<div class="text-xs text-morandi-orange font-bold mt-1 truncate">必吃：${item.must_eat}</div>` : ''}${(item.type !== 'must_eat' && item.location) ? `<div class="text-xs text-morandi-blue font-bold mt-0.5 truncate">📍 ${item.location}</div>` : ''}${displayNote ? `<div class="text-xs text-gray-400 mt-0.5 truncate">${displayNote}</div>` : ''}</div></div>${badge}</div>`;
             }).join(''); 
         }
         
-        // --- Todo Image Handling ---
         window.handleTodoImageUpload = function(event) {
             const file = event.target.files[0];
             if (file) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const img = new Image();
-                    img.onload = function() {
-                        const canvas = document.createElement('canvas');
-                        const ctx = canvas.getContext('2d');
-                        const MAX_WIDTH = 800; 
-                        const scaleSize = MAX_WIDTH / img.width;
-                        canvas.width = MAX_WIDTH;
-                        canvas.height = img.height * scaleSize;
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                        document.getElementById('todo-hidden-image-data').value = dataUrl;
-                        
-                        const previewContainer = document.getElementById('todo-image-upload-area');
-                        previewContainer.innerHTML = `
-                            <img src="${dataUrl}" class="w-full h-full object-contain block rounded-lg bg-gray-50">
-                            <div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 group"><button onclick="document.getElementById('todo-file-upload').click()" class="text-white text-xs font-bold border border-white bg-white/20 hover:bg-white/30 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105">更換</button><button onclick="removeImage('todo'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300 bg-red-500/40 hover:bg-red-500/70 backdrop-blur-md px-3 py-1.5 rounded-lg transition flex items-center gap-1 hover:scale-105"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除</button></div>
-                        `;
-                    }
-                    img.src = e.target.result;
-                }
-                reader.readAsDataURL(file);
+                const reader = new FileReader(); reader.onload = function(e) {
+                    const img = new Image(); img.onload = function() {
+                        const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d'), MAX_WIDTH = 600, scaleSize = MAX_WIDTH / img.width;
+                        canvas.width = MAX_WIDTH; canvas.height = img.height * scaleSize; ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.6); document.getElementById('todo-hidden-image-data').value = dataUrl;
+                        document.getElementById('todo-image-upload-area').innerHTML = `<img src="${dataUrl}" class="w-full h-full object-contain block rounded-lg bg-gray-50"><div class="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center gap-3 opacity-0 hover:opacity-100 transition-opacity duration-300 group"><button onclick="document.getElementById('todo-file-upload').click()" class="text-white text-xs font-bold border border-white bg-white/20 hover:bg-white/30 backdrop-blur-md px-3 py-1.5 rounded-lg transition hover:scale-105">更換</button><button onclick="removeImage('todo'); event.stopPropagation();" class="text-white text-xs font-bold border border-red-300 bg-red-500/40 hover:bg-red-500/70 backdrop-blur-md px-3 py-1.5 rounded-lg transition flex items-center gap-1 hover:scale-105"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>移除</button></div>`;
+                    }; img.src = e.target.result;
+                }; reader.readAsDataURL(file);
             }
         }
 
-        function switchTab(id) { document.getElementById('itinerary-view').classList.add('hidden'); document.getElementById('budget-view').classList.add('hidden'); document.getElementById('todo-view').classList.add('hidden'); document.getElementById(id+'-view').classList.remove('hidden'); document.querySelectorAll('#nav-menu button').forEach(btn => { btn.classList.remove('menu-active'); btn.classList.add('border-transparent'); }); const activeBtn = document.getElementById('menu-'+id); if(activeBtn) { activeBtn.classList.add('menu-active'); activeBtn.classList.remove('border-transparent'); } const menu = document.getElementById('nav-menu'); if(menu.classList.contains('menu-visible')) { toggleMenu(); } if(id === 'budget') { switchBudgetSubTab('history'); } if(id === 'todo') { switchTodoSubTab('todo'); } }
+        function switchTab(id) { document.getElementById('itinerary-view').classList.add('hidden'); document.getElementById('budget-view').classList.add('hidden'); document.getElementById('todo-view').classList.add('hidden'); document.getElementById(id+'-view').classList.remove('hidden'); document.querySelectorAll('#nav-menu button').forEach(btn => { btn.classList.remove('menu-active'); btn.classList.add('border-transparent'); }); const activeBtn = document.getElementById('menu-'+id); if(activeBtn) { activeBtn.classList.add('menu-active'); activeBtn.classList.remove('border-transparent'); } const menu = document.getElementById('nav-menu'); if(menu.classList.contains('menu-visible')) toggleMenu(); if(id === 'budget') switchBudgetSubTab('history'); if(id === 'todo') switchTodoSubTab('todo'); }
         function renderAll() { document.getElementById('loading-indicator').classList.add('hidden'); renderDayNavigation(); renderDayItinerary(currentDayIndex); }
-        document.getElementById('expense-date').valueAsDate = new Date();
-        document.addEventListener('DOMContentLoaded', () => { switchTab('itinerary'); });
+        document.getElementById('expense-date').valueAsDate = new Date(); document.addEventListener('DOMContentLoaded', () => { switchTab('itinerary'); });
     </script>
 </body>
 </html>
